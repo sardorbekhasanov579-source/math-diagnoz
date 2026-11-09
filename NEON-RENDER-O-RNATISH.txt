@@ -1,0 +1,64 @@
+MATH-DIAGNOZ v1.6 — NEON (baza) + RENDER (sayt), BIR MAKTAB PILOTI
+======================================================================
+
+MUHIM: Eski MATH-DIAGNOZ v1.5 papkangizni, server/data/math-diagnoz.sqlite
+faylini va server/data/uploads papkasini O'CHIRMANG.
+
+1. NEON DA BAZA OCHISH
+  - https://console.neon.tech manziliga kiring.
+  - New Project yoki Create Project tugmasini bosing.
+  - Project name: math-diagnoz
+  - Region: Singapurga yaqin mavjud hududni tanlang (agar tanlov bo'lsa).
+  - Plan: Free.
+  - Connect > Connection string > PostgreSQL URL ni nusxalang.
+  - Bu MAXFIY PAROLLI URL. Chatga yoki GitHubga yubormang.
+
+2. ESKI ADMINISTRATOR HISOBINI O'TKAZISH (FAQAT BIR MARTA)
+  - v1.5 serverini to'xtating. Eski butun papkani zaxiralang.
+  - MATH-DIAGNOZ v1.6 papkasini oching.
+  - VS Code terminalida: npm.cmd install
+  - .env.example faylidan .env nusxasi oling.
+  - .env ichidagi DATABASE_URL= qatoriga Neon'dan olingan URLni qo'ying.
+  - MIGRATSIYA-NEON.bat faylini ishga tushiring.
+  - Eski SQLite bazalar ro'yxatidan admin va testlar BOR bo'lgan manzilni tanlang.
+  - Neon oldindan ma'lumot bilan to'la bo'lsa, migratsiya O'CHIRMASDAN to'xtaydi.
+  - 'MUVAFFAQIYAT: NEON GA IMPORT TUGADI' chiqishi kerak.
+  - Eski login va parollar o'zgarmaydi.
+  - Brauzer IndexedDB da qolgan eski PDF/rasmlar oldindan v1.5 serverga
+    ko'chirilgan bo'lishi kerak. Ko'chirilmagan fayllarni keyin qayta yuklang.
+
+3. GITHUB GA YUKLASH
+  - GitHubda YANGI 'math-diagnoz' repositoriy oching.
+  - Faqat yangi MATH-DIAGNOZ loyihasi fayllarini yuklang.
+  - Hech qachon .env, *.sqlite, node_modules/, server/data/,
+    server/backups/ papkalarini YUKLAMANG.
+  - render.yaml repoda bo'lishi mumkin, lekin DATABASE_URL hech qachon bo'lmasin.
+
+4. RENDER DA WEB SERVICE
+  - Render > New > Web Service > math-diagnoz GitHub repositoriy.
+  - Runtime: Node. Plan: FREE.
+  - Build Command: npm install && npm run build
+  - Start Command: npm run start:render
+  - Environment > Add environment variable:
+       DATABASE_URL = Neon Connect PostgreSQL URL (MAXFIY)
+       NODE_VERSION = 22.16.0
+  - Xohlasangiz render.yaml Blueprint sifatida foydalaning.
+  - Render manzilini brauzerda oching, administrator sifatida kiring.
+
+5. TEST
+  - Bosh sahifa ochilishi, admin login, maktablar, sinflar, o'qituvchi
+    hisobi, o'quvchi testi, natija, ota-ona kabinetingizni tekshiring.
+  - PDF va savol rasmlarini kichik namunada yuklab, qayta oching.
+  - Administrator > Tizim va zaxira > 'To'liq zaxira yaratish' orqali
+    .json.gz nusxasini kompyuterga yuklab oling.
+
+ESLATMALAR:
+  - Bu paket hali production xavfsizlik auditidan o'tmagan maktab PILOTIdir.
+  - Render FREE 15 daqiqa ishlamasa uxlaydi, birinchi ochilishi sekin bo'ladi.
+  - Render FREE server fayllarini qayta deployda yo'qotadi; shuning uchun
+    bu versiyada yangi PDF/rasmlar Neon PostgreSQLda saqlanadi.
+  - Test/media fayllari uchun ilova tomonidan 200MB limit belgilangan.
+  - Yangi hisoblarni maktab sinovida faqat ADMIN yaratadi.
+  - NEON/RENDER parollarini hech qachon chatga tashlamang.
+  - .env faqat mahalliy migratsiya uchun; Render dagi DATABASE_URL xavfsiz env bo'lsin.
+  - Eski v1.5 dasturi oddiy SQLite rejimida hali ham alohida ishlaydi.

@@ -1,0 +1,75 @@
+MATH-DIAGNOZ v1.5 - BITTA MAKTABDA ISHGA TUSHIRISH
+===================================================
+
+BU MAKTAB ICHKI TARMOGI UCHUN PILOT. INTERNETGA OCHMANG.
+
+1. Oldingi loyihani zaxiraga oling:
+   - VS Code va serverni Ctrl+C bilan toxtating.
+   - MATH-DIAGNOZ -> MATH-DIAGNOZ-ESKI deb nomlang.
+   - Yangi ZIP ichidagi MATH-DIAGNOZ papkasini eskisi yoniga qoying.
+   - ESKI-BAZANI-KOCHIRISH.bat ni faqat bir marta ishlating.
+   - Agar yangi bazada ma'lumot bo'lsa, skript ustidan yozmaydi.
+   - Eski loyihani va server/data ni OCHIRMANG.
+
+2. Server uchun maktabdagi bitta Windows kompyuterni tanlang.
+   - Kompyuter doim yoqilgan va maktab routeriga Wi-Fi yoki kabel bilan ulangan bolsin.
+   - Node.js 22.13 yoki yangiroq bolsin. npm.cmd install internet talab qiladi.
+   - Barcha foydalanuvchilar BIR XIL ISHONCHLI WI-FI/LAN da bolsin.
+   - Guest (mehmon) Wi-Fi / client isolation / AP isolation bolmasin.
+   - Manzil tez-tez ozgarmasligi uchun routerda DHCP reservation qilish mumkin.
+
+3. START-MAKTAB-SERVER.bat faylini 2 marta bosing.
+   - U npm install (zarur bolsa), npm run build:school va npm run school ni bajaradi.
+   - Qora oynani YOPMANG. Barcha oquvchilar uchun shu server ishlaydi.
+   - 'Server kompyuterida: http://localhost:4173/' ko'rinadi.
+   - Pastda maktab tarmog'ining http://192.168.x.x:4173/ manzili chiqadi.
+
+4. Windows Defender Firewall sorasa: faqAT PRIVATE tarmoqni tanlang.
+   PUBLIC NETWORK uchun ruxsat bermang.
+   Agar boshqa telefon kira olmasa: server IP manzilini ipconfig orqali
+   tekshiring, qurilmalar bir tarmoqda ekanini va firewallni korib chiqing.
+   Routerda PORT FORWARDING QILMANG. Tashqi internetga ochmang.
+
+5. Admin server kompyuterida http://localhost:4173/ orqali kiradi.
+   Maktablar bolimida tanlangan pilot maktab nomini tahrir qiladi;
+   faqat shu maktab sinflarini foydalanadi. Zarur bolmagan namuna
+   sinflarni administratorda tartibga keltiradi, eski natijalarni yoqotmaydi.
+   Foydalanuvchilar bolimida oqituvchi, oquvchi va ota-onaga
+   ALohida login va kamida 8 belgili parol yaratadi.
+   MAKTAB REJIMIDA OCHIQ ROYXATDAN OTISH YOPIQ: faqat admin yaratadi.
+
+6. Telefon yoki boshqa kompyuterda CHIQARILGAN SERVER IP ni oching:
+   Masalan: http://192.168.1.20:4173/
+   !!! http://localhost:4173/ deb yozmang (u osha telefonning ozi).
+   Oquvchi login + parol bilan kiradi, test ishlaydi,
+   oqituvchi natijalarni, ota-ona farzand natijasini ko'radi.
+
+7. ZAXIRALAR:
+   - Server har kun birinchi ishga tushganda bazaning va uploads
+     papkasining avtomatik nusxasini server/backups/school-auto-YYYY-MM-DD
+     ga saqlaydi; oxirgi 3 kunlik nusxa qoladi.
+   - Admin Tizim va zaxira bolimida qolda nusxa ham yaratadi.
+   - Ma'lumotlarni saqlash uchun muntazam USB/ajratilgan diskka ham
+     backup nusxa oling. Qayta tiklashni alohida nusxada tekshiring.
+   - Agar eski PDFlar browser IndexedDBda bolsa, 5173 dagi oldingi
+     brauzer orqali admin Tizim va zaxira -> Eski fayllarni serverga
+     kochirish funksiyasini avval ishga tushirsin. 4173 port boshqa
+     browser origin, undagi oldingi IndexedDBni o'zi oqiy olmaydi.
+
+8. TEKSHIRISH:
+   - Admin kirish, maktab nomini korish.
+   - Oqituvchiga login, 5-A sinfi biriktirish, 10 savolli test.
+   - Sinov oquvchisining boshqa telefondan test ishlashi.
+   - Serverni qayta ishga tushirish, natijaning saqlanishi.
+   - Ota-ona kabinetida farzand natijasini korish.
+   - Malumotlar bazasi zaxirasini ko'rish.
+
+CHEKLOVLAR / OGOHLANTIRISH:
+   - Bu HTTP LAN PILOT. Parollar va oquvchi natijalari tarmoqda HTTPSsiz
+     uzatiladi. Faqat ishonchli ichki tarmoq, sinov akkauntlari,
+     haqiqiy voyaga yetmagan bolalar shaxsiy ma'lumotlarini kiritmaslik.
+   - Internet yoki keng jamoatchilik uchun xavfsiz deb hisoblamang.
+   - Bir nechta maktab yoki katta yuklamani mazkur pilotda tekshirmaganmiz.
+   - Bu rasmiy davlat axborot tizimi emas.
+
+Muammolar yuz bersa: ishlayotgan server CMD oynasining toliq rasmini yuboring.

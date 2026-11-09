@@ -1,0 +1,23 @@
+MATH-DIAGNOZ v1.3 SINOV NATIJALARI
+=================================
+Tekshirildi: 2026-11-06
+
+PASS: Node.js server kodi sintaktik tekshiruvdan o‘tdi.
+PASS: React TSX fayllari sintaktik tekshiruvdan o‘tdi.
+PASS: Admin yaratilishi va sessiya bilan login.
+PASS: PDF/PNG yuklash, format tekshirish, faylni o‘qish.
+PASS: O‘quvchi uchun fayl yuklash va admin auditga ruxsat rad etilishi.
+PASS: O‘quvchi API javobidan test javob kalitlarini yashirish.
+PASS: Testni boshlash, javob saqlash, yakunlash.
+PASS: Reyting va SQLite natijalarini hisoblash.
+PASS: Individual mashqlar, server javobi va o‘zlashtirish progressi.
+PASS: Administrator zaxirasi (SQLite va uploads papkasi).
+PASS: Eski baza uchun maktab/sinf maydonlarini migratsiya qilish sinovi.
+
+CHEKLOV: Bu muhitda npm kutubxonalari o‘rnatilishi yakunlanmadi,
+shuning uchun React/Vite to‘liq BUILD sinovi va foydalanuvchi brauzer
+sinovi hali o‘tkazilmadi. Bular foydalanuvchining Windows VS Code muhitida
+tekshirilishi kerak.
+
+CHEKLOV: HTTPS va internetga chiqarish, xavfsizlik auditi, katta yuklama
+sinovi va real shaxsiy ma’lumotlarni himoyalash uchun qo‘shimcha ishlar kerak.

@@ -1,0 +1,15 @@
+MATH-DIAGNOZ v1.4 — 10 DAQIQALIK SINOV RO‘YXATI
+
+1. Sayt ochilganda MATH-DIAGNOZ bosh sahifasi chiqadimi? (Yangi login bo‘lmagan brauzerda.)
+2. «Kirish»ni bossangiz alohida login sahifasi ochiladimi?
+3. «← Bosh sahifa» tugmasi qaytadimi?
+4. «Ro‘yxatdan o‘tish» alohida shakl sifatida chiqadimi?
+5. Admin login-parol bilan kabinetga kira oladimi?
+6. Kabinetdagi «⌂ Bosh sahifa» va «Kabinetga qaytish» ishlaydimi?
+7. Maktablar, sinflar va har bir maktab o‘quvchilari chiqadimi?
+8. Choraklik testlar 1–4, ochish/yopish, vaqtli testlar ishlaydimi?
+9. Word/rassmli savol/PDF yuklash ishlaydimi?
+10. «Tizim va zaxira»da to‘liq zaxira yaratildimi?
+
+Terminalda yakuniy kod tekshiruvi: npm.cmd run build
+Muammo bo‘lsa VS Code «PROBLEMS» va terminal skrinshotini yuboring.

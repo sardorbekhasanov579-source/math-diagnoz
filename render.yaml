@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: math-diagnoz-pilot
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:render
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: DATABASE_URL
+        sync: false
+      - key: MD_SCHOOL_MODE
+        value: '1'

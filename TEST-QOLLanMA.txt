@@ -1,0 +1,19 @@
+MATH-DIAGNOZ v1.3 — 12 QADAMLI SINOV
+1) npm.cmd install; npm.cmd run start:all (terminal ochiq qoladi)
+2) localhost:5173 sayti ochilsin; administrator bilan kiring.
+3) Maktablar: maktab yarating va ro‘yxatda oching.
+4) Maktab sinflari: 5-A va 7-A yarating (yoki mavjudini tanlang).
+5) Foydalanuvchilar: o‘qituvchi, o‘quvchi, ota-ona yarating.
+6) Ota-onaga o‘quvchi biriktiring; o‘qituvchiga sinfni biriktiring.
+7) 5-sinfga PDF yuklang, oching; yangi Chrome oynasida PDF ko‘rinsin.
+8) Bob oching, Word shablondan test yuklang; rasm qo‘shing.
+9) Choraklik test yarating, faollashtiring, 1-chorakni oching.
+10) Testni 5-A ga yuboring; o‘quvchi bilan kirib taymerni tekshiring.
+11) Natija: hisobot, matematik pasport, reyting, ota-ona paneli.
+12) O‘quvchi: Individual mashqlar; admin: Tizim va zaxira > backup.
+
+ESKI PDF BOR BO‘LSA: eski brauzerda admin bilan kiring va
+Tizim va zaxira > Eski fayllarni serverga ko‘chirish tugmasini bosing.
+
+Qanday xato bo‘lsa VS Code TERMINAL oynasi va Chrome sahifasi
+skrinshotini ko‘rsating; parolingizni yubormang.
