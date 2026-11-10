@@ -50,7 +50,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
         <span className="md14-brand-icon">M<span>✦</span></span><span><b>MATH-DIAGNOZ</b><small>Raqamli matematika platformasi</small></span>
       </a>
       <nav aria-label="Bosh sahifa menyusi"><a href="#imkoniyatlar">Imkoniyatlar</a><a href="#qanday-ishlaydi">Qanday ishlaydi?</a><a href="#sinflar">Sinflar</a></nav>
-      <div className="md14-nav-actions"><button className="md14-link-btn" onClick={enter}>{loggedIn ? 'Kabinetga qaytish' : 'Kirish'}</button>{!loggedIn && <button className="md14-nav-signup" onClick={onRegister}>{schoolMode?'Maktabga kirish':'Ro‘yxatdan o‘tish'} <span>↗</span></button>}</div>
+      <div className="md14-nav-actions"><button className="md14-link-btn" onClick={enter}>{loggedIn ? 'Kabinetga qaytish' : 'Kirish'}</button>{!loggedIn && <button className="md14-nav-signup" onClick={onRegister}>{'Ro‘yxatdan o‘tish'} <span>↗</span></button>}</div>
     </header>
     <main>
       <section className="md14-hero" aria-label="MATH-DIAGNOZ taqdimoti">
@@ -58,10 +58,10 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
         {shapes.map((symbol, i) => <span aria-hidden="true" key={i} className="md14-symbol" style={{left:`${4+(i*37)%91}%`,top:`${6+(i*23)%85}%`,animationDelay:`-${(i*1.7)%12}s`,animationDuration:`${9+i%7*2}s`}}>{symbol}</span>)}
         <div className="md14-hero-content">
           <div className="md14-copy">
-            <div className="md14-eyebrow"><span/> {schoolMode?`🏫 ${schoolName} · ICHKI TARMOQ SINOVI`:'5–9-SINFLAR UCHUN ZAMONAVIY TA’LIM'}</div>
+            <div className="md14-eyebrow"><span/> {schoolMode?`🏫 ${schoolName} · MAKTAB PILOTI`:'5–9-SINFLAR UCHUN ZAMONAVIY TA’LIM'}</div>
             <h1>Matematikani <em>tushuning.</em><br/>Bilimingizni <strong>rivojlantiring.</strong></h1>
             <p>Bilimdagi bo‘shliqni aniqlaymiz, yechimini topamiz. Darsliklar, diagnostik testlar, individual mashqlar va natijalar — yagona platformada.</p>
-            <div className="md14-hero-buttons"><button className="md14-primary" onClick={loggedIn ? onDashboard : onRegister}> {loggedIn ? 'Kabinetimga o‘tish' : (schoolMode?'Maktab hisobim':'Bepul boshlash')} <span>→</span></button><button className="md14-secondary" onClick={() => {setShowExample(v=>!v); setExampleAnswer(null)}}>{showExample?'Mini-testni yashirish':'Mini-testni sinash'} <span>▶</span></button></div>
+            <div className="md14-hero-buttons"><button className="md14-primary" onClick={loggedIn ? onDashboard : onRegister}> {loggedIn ? 'Kabinetimga o‘tish' : 'Bepul ro‘yxatdan o‘tish'} <span>→</span></button><button className="md14-secondary" onClick={() => {setShowExample(v=>!v); setExampleAnswer(null)}}>{showExample?'Mini-testni yashirish':'Mini-testni sinash'} <span>▶</span></button></div>
             {showExample && <div className="md14-quiz" aria-live="polite"><b>🧠 Mini-test: 3x + 6 = 15. x nechaga teng?</b><div>{[2,3,4].map(n => <button key={n} onClick={()=>setExampleAnswer(n)} className={exampleAnswer===n?'active':''}>{n}</button>)}</div><p>{exampleAnswer===null?'Javobingizni tanlang':exampleAnswer===3?'🎉 To‘g‘ri! x = 3.':'💡 Avval 6 ni ayirib, natijani 3 ga bo‘ling.'}</p></div>}
             <div className="md14-proof"><span>😊</span><span>🤓</span><span>🥳</span><div><b>Har bir o‘quvchi — alohida imkoniyat</b><small>O‘rganing · Sinang · Rivojlaning</small></div></div>
           </div>
@@ -85,7 +85,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
       <section className="md14-section" id="imkoniyatlar"><div className="md14-section-intro"><span>PLATFORMA IMKONIYATLARI</span><h2>O‘rganishning <em>aqlli yo‘li</em></h2><p>O‘quvchi, o‘qituvchi, ota-ona va administrator bir tizimda ishlaydi.</p></div><div className="md14-features">{features.map(f=><article key={f.title}><span>{f.icon}</span><h3>{f.title}</h3><p>{f.text}</p><span className="md14-feature-note">MATH-DIAGNOZ ↗</span></article>)}</div></section>
       <section className="md14-process" id="qanday-ishlaydi"><div className="md14-process-inner"><div className="md14-process-text"><span>O‘RGANISH MODELI</span><h2>Aniqla → tushuntir → rivojlantir → qayta o‘lcha</h2><p>Platforma faqat baho qo‘ymaydi. Qaysi mavzu qiyinligini topishga va aynan shu mavzuni mustahkamlashga yordam beradi.</p><button onClick={enter}> {loggedIn?'Kabinetga qaytish':'Tizimga kirish'} →</button></div><div className="md14-steps">{steps.map(s=><article key={s.n}><span className="md14-step-icon">{s.icon}</span><small>{s.n}</small><b>{s.title}</b><p>{s.desc}</p></article>)}</div></div></section>
       <section className="md14-section md14-grades" id="sinflar"><div className="md14-section-intro"><span>5–9-SINFLAR</span><h2>Har bir sinf uchun <em>alohida ta’lim yo‘li</em></h2><p>PDF darsliklar, boblar, mavzular va choraklik testlar sinf bo‘yicha ajratiladi.</p></div><div className="md14-grade-grid">{[5,6,7,8,9].map(grade=><button key={grade} onClick={enter}><span>📘</span><b>{grade}-sinf</b><small>Mavzular va testlar</small><i>→</i></button>)}</div></section>
-      <section className="md14-bottom"><div><span>✦ MATH-DIAGNOZ</span><h2>Matematikadagi imkoniyatingizni kashf eting!</h2><p>Shaxsiy natijalar, o‘qituvchi monitoringi va rivojlanish mashqlari.</p></div><button onClick={loggedIn?onDashboard:onRegister}>{loggedIn?'Kabinetga qaytish':(schoolMode?'Maktab hisobim':'Ro‘yxatdan o‘tish')} →</button></section>
+      <section className="md14-bottom"><div><span>✦ MATH-DIAGNOZ</span><h2>Matematikadagi imkoniyatingizni kashf eting!</h2><p>Shaxsiy natijalar, o‘qituvchi monitoringi va rivojlanish mashqlari.</p></div><button onClick={loggedIn?onDashboard:onRegister}>{loggedIn?'Kabinetga qaytish':'Ro‘yxatdan o‘tish'} →</button></section>
     </main>
     <footer className="md14-footer"><div><b>MATH-DIAGNOZ</b><span>Bilimdagi bo‘shliqni aniqlaymiz, yechimini topamiz.</span></div><small>© 2026 · Mahalliy sinov versiyasi · Rasmiy davlat axborot tizimi emas</small></footer>
   </div>

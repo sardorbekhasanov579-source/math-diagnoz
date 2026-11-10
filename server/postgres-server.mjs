@@ -67,7 +67,7 @@ function assetType(buffer,kind){
  if(buffer.subarray(0,4).toString('ascii')==='RIFF'&&buffer.subarray(8,12).toString('ascii')==='WEBP')return 'image/webp'
  return null
 }
-const safeUser = u => u ? ({ id:u.id, username:u.username, name:u.name, role:u.role, classId:u.class_id ?? undefined, childIds:JSON.parse(u.child_ids||'[]'), active:Boolean(u.active),lastLoginAt:u.last_login_at??null }) : null
+const safeUser = u => u ? ({ id:u.id, username:u.username, name:u.name, role:u.role, classId:u.class_id ?? undefined, childIds:JSON.parse(u.child_ids||'[]'), active:Boolean(u.active),verified:u.verified!==0, lastLoginAt:u.last_login_at??null }) : null
 const state = async k => { try {return JSON.parse((await get('SELECT value FROM app_state WHERE key=?',k))?.value??'null')} catch{return null} }
 const store = async (k,v) => await run('INSERT INTO app_state(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',k,JSON.stringify(v))
 const issue = async (res,id) => {await run('UPDATE users SET last_login_at=? WHERE id=?',Date.now(),id);const token=randomBytes(32).toString('hex');const maxAge=schoolMode?8*3600:7*86400;await run('INSERT INTO sessions(hash,user_id,expires) VALUES(?,?,?)',hash(token),id,Date.now()+maxAge*1000);res.setHeader('Set-Cookie',`md_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${process.env.RENDER ? '; Secure' : ''}`)}
@@ -75,13 +75,22 @@ async function auth(req){const token=/(?:^|;\s*)md_session=([a-f0-9]{64})(?:;|$)
 function send(res,code,obj){res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(obj))}
 function fail(res,code,message){send(res,code,{error:message})}
 async function readJson(req){let data='';for await(const chunk of req){data+=chunk;if(data.length>2_500_000)throw new Error('Ma’lumot juda katta')}try{return JSON.parse(data||'{}')}catch{throw new Error('JSON noto‘g‘ri')}}
-const roles=['admin','teacher','student','parent']
+const roles=['admin','assistant_admin','teacher','student','parent']
+const isOperator = actor => actor && ['admin','assistant_admin'].includes(actor.role)
+const isSuper = actor => actor?.role === 'admin'
+const signupAttempts = new Map()
+function allowedSignup(ip){
+ const now=Date.now(), entry=signupAttempts.get(ip)||{count:0,until:0};
+ if(now>entry.until){entry.count=0;entry.until=now+600000}
+ entry.count++; signupAttempts.set(ip,entry);return entry.count<=30
+}
 const clean=s=>String(s??'').trim()
 const validLogin=s=>/^[a-zA-Z0-9._-]{3,32}$/.test(s)
 const validPass=s=>typeof s==='string'&&s.length>=8&&s.length<=128
 const sanitizeUserList=async (actor)=>{
-  const allUsers=await all(actor.role==='admin'?'SELECT * FROM users ORDER BY id':'SELECT * FROM users WHERE active=1 ORDER BY id')
-  if(actor.role==='admin')return allUsers.map(safeUser)
+  const allUsers=await all(isOperator(actor)?'SELECT * FROM users ORDER BY id':'SELECT * FROM users WHERE active=1 ORDER BY id')
+  if(isSuper(actor))return allUsers.map(safeUser)
+  if(actor.role==='assistant_admin')return allUsers.filter(u=>!['admin','assistant_admin'].includes(u.role)||u.id===actor.id).map(safeUser)
   if(actor.role==='teacher') {const myClasses=(await all('SELECT id FROM classes WHERE teacher_id=?',actor.id)).map(c=>c.id);return allUsers.filter(u=>u.id===actor.id||u.role==='student'&&myClasses.includes(u.class_id)).map(safeUser)}
   if(actor.role==='parent'){const ids=JSON.parse(actor.child_ids||'[]');return allUsers.filter(u=>u.id===actor.id||ids.includes(u.id)).map(safeUser)}
   return allUsers.filter(u=>u.id===actor.id).map(safeUser)
@@ -90,7 +99,7 @@ const attemptsFor=async (actor)=>{
   const recs=await all('SELECT results.data,users.class_id,results.user_id FROM results JOIN users ON users.id=results.user_id ORDER BY results.id DESC')
   const classIds=actor.role==='teacher'?(await all('SELECT id FROM classes WHERE teacher_id=?',actor.id)).map(c=>c.id):[]
   const children=actor.role==='parent'?JSON.parse(actor.child_ids||'[]'):[]
-  return recs.filter(r=>actor.role==='admin'||actor.role==='teacher'&&classIds.includes(r.class_id)||actor.role==='student'&&r.user_id===actor.id||actor.role==='parent'&&children.includes(r.user_id)).map(r=>JSON.parse(r.data))
+  return recs.filter(r=>isOperator(actor)||actor.role==='teacher'&&classIds.includes(r.class_id)||actor.role==='student'&&r.user_id===actor.id||actor.role==='parent'&&children.includes(r.user_id)).map(r=>JSON.parse(r.data))
 }
 async function leaderboard(actor,filterGrade,filterClass){
  const students=await all("SELECT u.id,u.name,u.class_id,c.grade,c.name AS class_name FROM users u LEFT JOIN classes c ON c.id=u.class_id WHERE u.role='student' AND u.active=1")
@@ -102,7 +111,7 @@ async function leaderboard(actor,filterGrade,filterClass){
   for(const r of records){if(r.user_id!==u.id)continue;const a=JSON.parse(r.data);if(!a.total)continue;const pct=a.score/a.total*100;best.set(a.testId,Math.max(best.get(a.testId)??-1,pct))}
   if(!best.size)continue
   const avg=Math.round([...best.values()].reduce((a,b)=>a+b,0)/best.size*10)/10
-  const mine=actor.id===u.id||actor.role==='admin'||actor.role==='teacher'&&await get('SELECT 1 FROM classes WHERE id=? AND teacher_id=?',u.class_id,actor.id)
+  const mine=actor.id===u.id||isOperator(actor)||actor.role==='teacher'&&await get('SELECT 1 FROM classes WHERE id=? AND teacher_id=?',u.class_id,actor.id)
   const parts=u.name.trim().split(/\s+/)
   const displayName=mine?u.name:`${parts[0]} ${parts.length>1?parts[1][0]+'.':''}`.trim()
   out.push({studentId:u.id,displayName,className:u.class_name||'—',grade:u.grade,average:avg,tests:best.size,isMe:actor.id===u.id})
@@ -194,7 +203,7 @@ const server=createServer(async(req,res)=>{
     }
   }
   try{
-    if(path==='/api/status'&&method==='GET')return send(res,200,{initialized:!!await get('SELECT id FROM users LIMIT 1'),schoolMode,schoolName:(await get('SELECT name FROM schools ORDER BY id LIMIT 1'))?.name||'Sinov maktabi',classes:schoolMode?[]:await publicClasses()})
+    if(path==='/api/status'&&method==='GET')return send(res,200,{initialized:!!await get('SELECT id FROM users LIMIT 1'),schoolMode,selfRegistration:true,schoolName:(await get('SELECT name FROM schools ORDER BY id LIMIT 1'))?.name||'Sinov maktabi',classes:await publicClasses()})
     if(path==='/api/auth/setup'&&method==='POST'){
       if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress||''))return fail(res,403,'Birinchi administratorni SQLite import orqali kiriting')
       if(await get('SELECT id FROM users LIMIT 1'))return fail(res,403,'Administrator allaqachon yaratilgan')
@@ -204,14 +213,15 @@ const server=createServer(async(req,res)=>{
       await issue(res,id);return send(res,201,{user:safeUser(await get('SELECT * FROM users WHERE id=?',id))})
     }
     if(path==='/api/auth/register'&&method==='POST'){
-      if(schoolMode)return fail(res,403,'Maktab sinovida hisoblarni faqat administrator yaratadi')
       if(!await get('SELECT id FROM users LIMIT 1'))return fail(res,400,'Avval administrator hisobini yarating')
+      if(!allowedSignup(req.socket.remoteAddress||'unknown'))return fail(res,429,'Ro‘yxatdan o‘tish urinishlari ko‘p. 10 daqiqadan keyin qayta urinib ko‘ring.')
       const d=await readJson(req),role=clean(d.role)
       if(!['student','parent'].includes(role))return fail(res,403,'O‘qituvchi hisobini administrator yaratadi')
       if(!validLogin(clean(d.username))||!validPass(d.password)||clean(d.name).length<2)return fail(res,400,'Login/parol/ism ma’lumotlarini tekshiring')
       if(role==='student'&&!await get('SELECT id FROM classes WHERE id=?',Number(d.classId)))return fail(res,400,'Sinfni tanlang')
       const salt=randomBytes(16).toString('hex')
-      const id=Number((await run('INSERT INTO users(username,name,role,class_id,salt,pass_hash) VALUES(?,?,?,?,?,?)',clean(d.username).toLowerCase(),clean(d.name),role,role==='student'?Number(d.classId):null,salt,passHash(d.password,salt))).lastInsertRowid)
+      const id=Number((await run('INSERT INTO users(username,name,role,class_id,salt,pass_hash,verified) VALUES(?,?,?,?,?,?,0)',clean(d.username).toLowerCase(),clean(d.name),role,role==='student'?Number(d.classId):null,salt,passHash(d.password,salt))).lastInsertRowid)
+      await audit({id},'auth.signup',role)
       await issue(res,id);return send(res,201,{user:safeUser(await get('SELECT * FROM users WHERE id=?',id))})
     }
     if(path==='/api/auth/login'&&method==='POST'){
@@ -229,7 +239,7 @@ const server=createServer(async(req,res)=>{
     if(!actor)return fail(res,401,'Avval tizimga kiring')
     // PDF and image bytes persist as PostgreSQL bytea (pilot quota 200 MB).
     if(path==='/api/assets/pdf'&&method==='POST'||path==='/api/assets/image'&&method==='POST'){
-      if(!['admin','teacher'].includes(actor.role))return fail(res,403,'Yuklashga ruxsat yo‘q')
+      if(!isOperator(actor)&&actor.role!=='teacher')return fail(res,403,'Yuklashga ruxsat yo‘q')
       const kind=path.endsWith('/pdf')?'pdf':'image'
       const max=kind==='pdf'?40*1024*1024:4*1024*1024
       const name=clean(url.searchParams.get('name')|| (kind==='pdf'?'darslik.pdf':'rasm.png')).slice(0,150)
@@ -252,21 +262,21 @@ const server=createServer(async(req,res)=>{
       return res.end(file)
     }
     if(path==='/api/system/health'&&method==='GET'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isSuper(actor))return fail(res,403,'Faqat super-admin')
       const total=(await get('SELECT COUNT(*) n FROM assets')).n
       return send(res,200,{version:'1.6.0',mode:'neon-render-pilot',users:(await get('SELECT COUNT(*) n FROM users WHERE active=1')).n,schools:(await get('SELECT COUNT(*) n FROM schools')).n,classes:(await get('SELECT COUNT(*) n FROM classes')).n,results:(await get('SELECT COUNT(*) n FROM results')).n,files:total,fileBytes:(await get('SELECT COALESCE(SUM(bytes),0) n FROM assets')).n,lastBackup:'Qo‘lda eksport yuklab oling'})
     }
     if(path==='/api/system/activity'&&method==='GET'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isSuper(actor))return fail(res,403,'Faqat super-admin')
       return send(res,200,{events:await all('SELECT a.action,a.details,a.created_at AS createdAt,u.name AS actor FROM audit a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 50')})
     }
     if(path==='/api/system/backup'&&method==='POST'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isSuper(actor))return fail(res,403,'Faqat super-admin')
       await audit(actor,'backup.request','PostgreSQL eksport')
       return send(res,200,{ok:true,folder:'Yuklab olish orqali',downloadUrl:'/api/system/backup/download'})
     }
     if(path==='/api/system/backup/download'&&method==='GET'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isSuper(actor))return fail(res,403,'Faqat super-admin')
       res.writeHead(200,{
         'Content-Type':'application/gzip',
         'Content-Disposition':`attachment; filename="math-diagnoz-neon-${new Date().toISOString().slice(0,10)}.json.gz"`,
@@ -325,11 +335,11 @@ const server=createServer(async(req,res)=>{
     }
 
     if(path==='/api/schools'&&method==='GET'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       return send(res,200,{schools:await allSchools()})
     }
     if(path==='/api/schools'&&method==='POST'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const d=await readJson(req),name=clean(d.name),region=clean(d.region),district=clean(d.district),code=clean(d.code)
       if(name.length<3||name.length>120||region.length>100||district.length>100||code.length>30)return fail(res,400,'Maktab ma’lumotlari noto‘g‘ri')
       const id=Number((await run('INSERT INTO schools(name,region,district,code) VALUES(?,?,?,?)',name,region,district,code)).lastInsertRowid)
@@ -337,7 +347,7 @@ const server=createServer(async(req,res)=>{
     }
     const schoolMatch=/^\/api\/schools\/(\d+)$/.exec(path)
     if(schoolMatch&&['PATCH','DELETE'].includes(method)){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const id=Number(schoolMatch[1]),school=await validSchool(id)
       if(!school)return fail(res,404,'Maktab topilmadi')
       if(method==='DELETE'){
@@ -350,7 +360,7 @@ const server=createServer(async(req,res)=>{
       return send(res,200,{school:await get('SELECT id,name,region,district,code FROM schools WHERE id=?',id)})
     }
     if(path==='/api/classes'&&method==='POST'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const d=await readJson(req),grade=Number(d.grade),name=clean(d.name)
       const schoolId=Number(d.schoolId)||defaultSchool
       if(![5,6,7,8,9].includes(grade)||!name||name.length>40||!await validSchool(schoolId))return fail(res,400,'Sinf, daraja yoki maktab noto‘g‘ri')
@@ -360,7 +370,7 @@ const server=createServer(async(req,res)=>{
     }
     const classMatch=/^\/api\/classes\/(\d+)$/.exec(path)
     if(classMatch&&['PATCH','DELETE'].includes(method)){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const id=Number(classMatch[1]),row=await get('SELECT * FROM classes WHERE id=?',id)
       if(!row)return fail(res,404,'Sinf topilmadi')
       if(method==='DELETE'){
@@ -376,9 +386,10 @@ const server=createServer(async(req,res)=>{
       return send(res,200,{class:(await allClasses()).find(c=>c.id===id)})
     }
     if(path==='/api/users'&&method==='POST'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const d=await readJson(req),role=clean(d.role)
-      if(!['teacher','student','parent'].includes(role)||!validLogin(clean(d.username))||!validPass(d.password)||clean(d.name).length<2)return fail(res,400,'Ism, rol, login va kamida 8 belgili parol kiriting')
+      if(!['assistant_admin','teacher','student','parent'].includes(role)||!validLogin(clean(d.username))||!validPass(d.password)||clean(d.name).length<2)return fail(res,400,'Ism, rol, login va kamida 8 belgili parol kiriting')
+      if(role==='assistant_admin'&&!isSuper(actor))return fail(res,403,'Yordamchi adminni faqat super-admin yaratadi')
       if(role==='student'&&!await get('SELECT id FROM classes WHERE id=?',Number(d.classId)))return fail(res,400,'Sinfni tanlang')
       if(role==='parent'&&d.childIds&&!await validChildren(d.childIds))return fail(res,400,'Farzand ID larini tekshiring')
       const salt=randomBytes(16).toString('hex');const id=Number((await run('INSERT INTO users(username,name,role,class_id,child_ids,salt,pass_hash) VALUES(?,?,?,?,?,?,?)',clean(d.username).toLowerCase(),clean(d.name),role,role==='student'?Number(d.classId)||null:null,JSON.stringify(role==='parent'&&Array.isArray(d.childIds)?d.childIds:[]),salt,passHash(d.password,salt))).lastInsertRowid)
@@ -386,18 +397,21 @@ const server=createServer(async(req,res)=>{
     }
     const userMatch=/^\/api\/users\/(\d+)$/.exec(path)
     if(userMatch&&method==='PATCH'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const id=Number(userMatch[1]),d=await readJson(req),u=await get('SELECT * FROM users WHERE id=?',id)
       if(!u)return fail(res,404,'Foydalanuvchi yo‘q')
-      if(u.role==='admin'&&actor.id!==id)return fail(res,403,'Boshqa adminni o‘zgartirmang')
-      const name=clean(d.name)||u.name;const classId=u.role==='student'?Number(d.classId)||null:null
+      if(u.role==='admin'&&actor.id!==id)return fail(res,403,'Super-admin hisobini o‘zgartirib bo‘lmaydi')
+      if(u.role==='assistant_admin'&&!isSuper(actor))return fail(res,403,'Yordamchi adminni faqat super-admin boshqaradi')
+      const name=clean(d.name)||u.name;const classId=u.role==='student'?Number(d.classId??u.class_id)||null:null
       if(u.role==='student'&&classId&&!await get('SELECT id FROM classes WHERE id=?',classId))return fail(res,400,'Sinf topilmadi')
       const childIds=u.role==='parent'&&Array.isArray(d.childIds)?d.childIds:JSON.parse(u.child_ids||'[]')
       if(u.role==='parent'&&!await validChildren(childIds))return fail(res,400,'Farzandlardan biri mavjud emas')
       const active=u.role==='admin'?1:d.active===undefined?u.active:Number(Boolean(d.active))
+      const verified=u.role==='admin'||u.role==='assistant_admin'?1:d.verified===undefined?u.verified:Number(Boolean(d.verified))
       if(d.password!==undefined&&!validPass(d.password))return fail(res,400,'Yangi parol kamida 8 belgi')
-      await run('UPDATE users SET name=?,class_id=?,child_ids=?,active=? WHERE id=?',name,classId,JSON.stringify(childIds),active,id)
+      await run('UPDATE users SET name=?,class_id=?,child_ids=?,active=?,verified=? WHERE id=?',name,classId,JSON.stringify(childIds),active,verified,id)
       if(d.password!==undefined){const salt=randomBytes(16).toString('hex');await run('UPDATE users SET salt=?,pass_hash=? WHERE id=?',salt,passHash(d.password,salt),id);await run('DELETE FROM sessions WHERE user_id=?',id)}
+      if(d.verified!==undefined)await audit(actor,'user.verify',`${id}: ${Boolean(d.verified)}`)
       if(u.role==='teacher'&&Array.isArray(d.teacherClassIds)){
         await run('UPDATE classes SET teacher_id=NULL WHERE teacher_id=?',id)
         for(const c of d.teacherClassIds){if(!await get('SELECT id FROM classes WHERE id=?',Number(c)))return fail(res,400,'Sinf topilmadi')}
@@ -406,14 +420,16 @@ const server=createServer(async(req,res)=>{
       return send(res,200,{user:safeUser(await get('SELECT * FROM users WHERE id=?',id))})
     }
     if(userMatch&&method==='DELETE'){
-      if(actor.role!=='admin')return fail(res,403,'Faqat administrator')
+      if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const id=Number(userMatch[1]);if(id===actor.id)return fail(res,403,'O‘zingizni o‘chira olmaysiz')
+      const victim=await get('SELECT role FROM users WHERE id=?',id)
+      if(victim?.role==='admin'||victim?.role==='assistant_admin'&&!isSuper(actor))return fail(res,403,'Admin hisobini boshqarishga ruxsat yo‘q')
       await run('UPDATE users SET active=0 WHERE id=? AND role<>\'admin\'',id);await run('DELETE FROM sessions WHERE user_id=?',id)
       return send(res,200,{ok:true})
     }
     const stateMatch=/^\/api\/state\/(books|questions|testSets|assignments|adminSettings|quarterGates)$/.exec(path)
     if(stateMatch&&method==='PUT'){
-      const k=stateMatch[1];if(!['admin','teacher'].includes(actor.role)||actor.role==='teacher'&&['adminSettings','quarterGates'].includes(k))return fail(res,403,'Ruxsat yo‘q')
+      const k=stateMatch[1];if(!(isOperator(actor)||actor.role==='teacher')||(actor.role==='teacher'&&['adminSettings','quarterGates'].includes(k))||(actor.role==='assistant_admin'&&k==='adminSettings'))return fail(res,403,'Ruxsat yo‘q')
       const d=await readJson(req)
       if(!Array.isArray(d.value)&&k!=='adminSettings')return fail(res,400,'Noto‘g‘ri ma’lumot')
       if(k==='quarterGates'&&(d.value.length>20||d.value.some(g=>![5,6,7,8,9].includes(g.grade)||![1,2,3,4].includes(g.quarter)||typeof g.enabled!=='boolean')))return fail(res,400,'Chorak sozlamalari noto‘g‘ri')
@@ -429,6 +445,7 @@ const server=createServer(async(req,res)=>{
     }
     if(path==='/api/exams/start'&&method==='POST'){
       if(actor.role!=='student')return fail(res,403,'Faqat o‘quvchi test ishlaydi')
+      if(actor.verified===0)return fail(res,403,'Sinfingiz administrator tomonidan tasdiqlangach testga kirishingiz mumkin')
       const d=await readJson(req),test=(await state('testSets')||[]).find(t=>t.id===Number(d.testId))
       await verifyExam(test,actor)
       const active=await get("SELECT id FROM exams WHERE user_id=? AND status='running'",actor.id)
@@ -439,6 +456,7 @@ const server=createServer(async(req,res)=>{
       await audit(actor,'exam.start',test.title);return send(res,201,{exam:{id,testId:test.id,startedAt:start,deadlineAt:deadline,answers:{}}})
     }
     if(path==='/api/exams/answer'&&method==='POST'){
+      if(actor.role!=='student'||actor.verified===0)return fail(res,403,'Sinfingiz hali tasdiqlanmagan')
       const d=await readJson(req),ex=await get("SELECT * FROM exams WHERE id=? AND user_id=? AND status='running'",clean(d.examId),actor.id)
       if(!ex)return fail(res,404,'Boshlangan test yo‘q')
       if(Date.now()>=ex.deadline_at)return fail(res,409,'Test vaqti tugagan')
@@ -449,6 +467,7 @@ const server=createServer(async(req,res)=>{
       return send(res,200,{ok:true})
     }
     if(path==='/api/exams/finish'&&method==='POST'){
+      if(actor.role!=='student'||actor.verified===0)return fail(res,403,'Sinfingiz hali tasdiqlanmagan')
       const d=await readJson(req),ex=await get('SELECT * FROM exams WHERE id=? AND user_id=?',clean(d.examId),actor.id)
       if(!ex)return fail(res,404,'Test topilmadi')
       const record=await finishExam(actor,ex);await audit(actor,'exam.finish',record.testTitle);return send(res,200,{record})

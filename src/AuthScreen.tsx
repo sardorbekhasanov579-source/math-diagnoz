@@ -3,7 +3,7 @@ import './AuthScreen.css'
 
 type Role = 'student'|'parent'
 type GradeClass={id:number;name:string;grade:number;schoolId?:number;schoolName?:string}
-export type SignedUser={id:number;name:string;username:string;role:'admin'|'teacher'|'student'|'parent';classId?:number;childIds?:number[];active:boolean}
+export type SignedUser={id:number;name:string;username:string;role:'admin'|'assistant_admin'|'teacher'|'student'|'parent';classId?:number;childIds?:number[];active:boolean;verified?:boolean}
 export async function api<T=any>(url:string,method='GET',data?:unknown):Promise<T>{
  const response=await fetch(url,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:undefined,body:data?JSON.stringify(data):undefined})
  const payload=await response.json().catch(()=>({error:'Server javobini o‘qib bo‘lmadi'}))
@@ -49,7 +49,6 @@ export default function AuthScreen({onAuth,booksCount,questionCount,onBack,initi
  },[])
  async function submit(e:FormEvent){
    e.preventDefault();setError('');
-   if(schoolMode&&initialized&&mode==='register')return setError('Maktabda hisoblarni administrator beradi.');
    if(mode==='register'||!initialized){
      if(name.trim().length<2)return setError('Ismingizni to‘liq kiriting.')
      if(password.length<8)return setError('Parol kamida 8 belgidan iborat bo‘lsin.')
@@ -95,7 +94,7 @@ export default function AuthScreen({onAuth,booksCount,questionCount,onBack,initi
            <div className="md-authsite-card-top"><span className="md-authsite-card-emblem">✦</span><div><small>SHAXSIY KABINET</small><h2>{!initialized?'Birinchi administrator':signup?'Hisob yaratish':'Xush kelibsiz!'}</h2></div></div>
            <p className="md-authsite-card-sub">{!initialized?'Tizimni ilk marta sozlash':signup?'MATH-DIAGNOZ oilasiga qo‘shiling':'Akkauntingizga xavfsiz kirish'}</p>
            {initialized&&<div className="md-authsite-tabs" role="tablist"><button role="tab" aria-selected={mode==='login'} className={mode==='login'?'active':''} onClick={()=>{setMode('login');setError('')}}>Kirish</button><button role="tab" aria-selected={mode==='register'} className={mode==='register'?'active':''} onClick={()=>{setMode('register');setError('')}}>Ro‘yxatdan o‘tish</button></div>}
-           {schoolMode&&initialized&&mode==='register' ? <div className="md15-school-signup">
+           {false && schoolMode&&initialized&&mode==='register' ? <div className="md15-school-signup">
              <span className="md15-school-signup-icon">🏫</span>
              <strong>Maktabning yopiq sinov tizimi</strong>
              <p><b>{schoolName}</b> uchun o‘quvchi, o‘qituvchi va ota-ona login-parollarini faqat administrator yaratadi. Sinf rahbaridan login va vaqtinchalik parolingizni oling.</p>
@@ -109,9 +108,9 @@ export default function AuthScreen({onAuth,booksCount,questionCount,onBack,initi
              {signup&&<><div className="md-authsite-strength"><span style={{width:`${Math.min(100,Math.max(5,password.length*7+( /\d/.test(password)?10:0)+(/[A-Z]/.test(password)?10:0)+(/[^\w]/.test(password)?10:0)))}%`}}/></div><label>Parolni takrorlang<input type={showPassword?'text':'password'} placeholder="Parolni qayta kiriting" autoComplete="new-password" required value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)}/></label><label className="md-authsite-agree"><input type="checkbox" checked={agree} onChange={e=>setAgree(e.target.checked)}/><span>Foydalanish qoidalari va ma’lumotlar himoyasi haqida ogohlantirishni qabul qilaman.</span></label></>}
              {(error||connection)&&<div className="md-authsite-error" role="alert">⚠️ {error||connection}</div>}
              <button className="md-authsite-submit" type="submit" disabled={busy||!!connection}>{busy?'Tekshirilmoqda...':!initialized?'Administratorni yaratish':signup?'Akkaunt yaratish →':'Kabinetga kirish →'}</button>
-             {signup&&initialized&&<small>O‘qituvchi hisobini administrator yaratadi. Ota-ona va farzandlar bog‘lanishini ham administrator tasdiqlaydi.</small>}
+             {signup&&initialized&&<small>O‘quvchi va ota-ona hisobini o‘zingiz yaratasiz. Maktabga biriktirishni va farzand aloqasini administrator tasdiqlaydi; tasdiqqacha testlar yopiq.</small>}
            </form>}
-           <div className="md-authsite-secure">🔒 <span>Ma’lumotlar mahalliy pilot serverida saqlanadi</span></div>
+           <div className="md-authsite-secure">🔒 <span>Parollar himoyalangan · Hisoblar maktab tomonidan tasdiqlanadi</span></div>
          </div>
        </div>
      </section>

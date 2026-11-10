@@ -5,7 +5,7 @@ import PublicLanding from './PublicLanding'
 import PracticePanel from './PracticePanel'
 import './App.css'
 
-type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice'
+type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice' | 'admins'
 type Chapter = { id: number; title: string; topics: string[]; startPage?: number; endPage?: number }
 type Book = { id: number; title: string; grade: number; author: string; chapters: Chapter[]; pdfKey?: string; pdfName?: string }
 type Question = { id: number; bookId: number; chapterId: number; topic?: string; text: string; options: string[]; correct: number; imageKeys?: string[]; optionImageKeys?: string[][] }
@@ -18,11 +18,11 @@ type TestAttempt = { id: number; testId: number; testTitle: string; grade: numbe
 type AdminSettings = { durationMinutes: number; maxAttempts: number; passingPercent: number; showResult: boolean; warnBeforeMinutes: number }
 type ActiveSession = { testId: number; studentId?: number; startedAt: number; deadlineAt: number; questionIds: number[];
   answers: Record<number,number>; status: 'running' | 'finished'; resultId?: number; serverExamId?: string; durationMinutes: number; passingPercent: number; showResult: boolean }
-type DemoRole = 'admin' | 'teacher' | 'student' | 'parent'
+type DemoRole = 'admin' | 'assistant_admin' | 'teacher' | 'student' | 'parent'
 type School = { id:number; name:string; region:string; district:string; code:string }
 type QuarterGate = {grade: number; quarter: number; enabled: boolean}
 type SchoolClass = { id: number; name: string; grade: number; teacherId?: number | null; schoolId?: number }
-type DemoUser = { id: number; name: string; role: DemoRole; username?: string; classId?: number; childIds?: number[]; active: boolean; lastLoginAt?: number | null }
+type DemoUser = { id: number; name: string; role: DemoRole; username?: string; classId?: number; childIds?: number[]; active: boolean; verified?: boolean; lastLoginAt?: number | null }
 type Assignment = { id: number; testId: number; classId: number; createdAt: string }
 const DEMO_CLASSES: SchoolClass[] = [
   {id:101,name:'5-A',grade:5,teacherId:2},
@@ -37,7 +37,7 @@ const DEMO_USERS: DemoUser[] = [
   {id:5,name:'O‘quvchi 3 (demo)',role:'student',classId:101,active:true},
   {id:6,name:'Ota-ona (demo)',role:'parent',childIds:[3,5],active:true},
 ]
-const ROLE_NAMES: Record<DemoRole,string> = {admin:'Administrator',teacher:'O‘qituvchi',student:'O‘quvchi',parent:'Ota-ona'}
+const ROLE_NAMES: Record<DemoRole,string> = {admin:'Super-admin',assistant_admin:'Yordamchi admin',teacher:'O‘qituvchi',student:'O‘quvchi',parent:'Ota-ona'}
 const CLASS_KEY = 'math-diagnoz-classes-v08'
 const USER_KEY = 'math-diagnoz-users-v08'
 const ASSIGN_KEY = 'math-diagnoz-assignments-v08'
@@ -208,6 +208,7 @@ const nav: { id: Page; label: string; icon: string }[] = [
   { id: 'classes', label: 'Maktab sinflari', icon: '▦' },
   { id: 'diagnostics', label: 'Matematik diagnostika', icon: '◉' },
   { id: 'users', label: 'Foydalanuvchilar', icon: '♧' },
+  { id: 'admins', label: 'Super-admin va yordamchilar', icon: '♛' },
   { id: 'assignments', label: 'Testni sinfga yuborish', icon: '⇢' },
   { id: 'library', label: 'Darsliklarni o‘qish', icon: '▤' },
   { id: 'children', label: 'Farzandlar natijasi', icon: '♧' },
@@ -306,6 +307,9 @@ function App() {
   const [newClassGrade, setNewClassGrade] = useState(5)
   const [newClassName, setNewClassName] = useState('')
   const [newUserName, setNewUserName] = useState('')
+  const [assistantName,setAssistantName]=useState('')
+  const [assistantLogin,setAssistantLogin]=useState('')
+  const [assistantPassword,setAssistantPassword]=useState('')
   const [newUserRole, setNewUserRole] = useState<DemoRole>('student')
   const [newUserClassId, setNewUserClassId] = useState(0)
   const [newParentChildIds, setNewParentChildIds] = useState<number[]>([])
@@ -315,8 +319,10 @@ function App() {
   const [parentChildId, setParentChildId] = useState(3)
   const currentUser = authUser ? (users.find(u => u.id === authUser.id && u.role === authUser.role) || authUser) : (users.find(u => u.id === currentUserId) || DEMO_USERS[0])
   const role = currentUser.role
+  const isManager = role==='admin'||role==='assistant_admin'
   const roleNav = nav.filter(n => {
     if (role === 'admin') return !['library','children','practice'].includes(n.id)
+    if (role === 'assistant_admin') return !['library','children','practice','settings','system','admins'].includes(n.id)
     if (role === 'teacher') return ['dashboard','books','chapters','questions','tests','quarterly','assignments','students','reports','library','ranking','diagnostics'].includes(n.id)
     if (role === 'student') return ['dashboard','library','students','quarterly','practice','reports','ranking','diagnostics'].includes(n.id)
     return ['dashboard','children','reports','ranking','diagnostics'].includes(n.id)
@@ -465,12 +471,11 @@ function App() {
       setClassSchoolId(old=>d.schools.some(s=>s.id===old)?old:d.schools[0]?.id||0)
       setNewUserClassId(old=>d.classes.some(c=>c.id===old)?old:d.classes[0]?.id||0)
       setAssignmentClassId(old=>d.classes.some(c=>c.id===old)?old:d.classes[0]?.id||0)
-      const administrator=d.user.role==='admin'
-      if(d.state.books!==null)setBooks(d.state.books);else if(!administrator)setBooks([])
-      if(d.state.questions!==null)setQuestions(d.state.questions);else if(!administrator)setQuestions([])
-      if(d.state.testSets!==null)setTestSets(d.state.testSets);else if(!administrator)setTestSets([])
+      if(d.state.books!==null)setBooks(d.state.books);else setBooks([])
+      if(d.state.questions!==null)setQuestions(d.state.questions);else setQuestions([])
+      if(d.state.testSets!==null)setTestSets(d.state.testSets);else setTestSets([])
       setQuarterGates(d.state.quarterGates||[])
-      if(d.state.assignments!==null)setAssignments(d.state.assignments);else if(!administrator)setAssignments([])
+      if(d.state.assignments!==null)setAssignments(d.state.assignments);else setAssignments([])
       if(d.state.adminSettings!==null){setAdminSettings(d.state.adminSettings);setSettingsDraft(d.state.adminSettings)}
       setTestAttempts(d.testAttempts)
       try{
@@ -494,11 +499,11 @@ function App() {
     const timer=window.setTimeout(()=>{void api(`/api/state/${key}`,'PUT',{value}).catch(err=>setNotice(`Serverga saqlash xatosi: ${err instanceof Error?err.message:'xatolik'}`))},450)
     return ()=>window.clearTimeout(timer)
   }
-  useEffect(()=>syncState('books',books,role==='admin'||role==='teacher'),[books,hydrated,role])
-  useEffect(()=>syncState('questions',questions,role==='admin'||role==='teacher'),[questions,hydrated,role])
-  useEffect(()=>syncState('testSets',testSets,role==='admin'||role==='teacher'),[testSets,hydrated,role])
-  useEffect(()=>syncState('quarterGates',quarterGates,role==='admin'),[quarterGates,hydrated,role])
-  useEffect(()=>syncState('assignments',assignments,role==='admin'||role==='teacher'),[assignments,hydrated,role])
+  useEffect(()=>syncState('books',books,isManager||role==='teacher'),[books,hydrated,role])
+  useEffect(()=>syncState('questions',questions,isManager||role==='teacher'),[questions,hydrated,role])
+  useEffect(()=>syncState('testSets',testSets,isManager||role==='teacher'),[testSets,hydrated,role])
+  useEffect(()=>syncState('quarterGates',quarterGates,isManager),[quarterGates,hydrated,role])
+  useEffect(()=>syncState('assignments',assignments,isManager||role==='teacher'),[assignments,hydrated,role])
   useEffect(()=>syncState('adminSettings',adminSettings,role==='admin'),[adminSettings,hydrated,role])
   useEffect(()=>{if(loggedIn&&hydrated)void loadRanking()},[loggedIn,hydrated,rankGrade,rankClass,testAttempts.length])
   async function loadRanking(){
@@ -546,8 +551,8 @@ function App() {
   const myClassIds = classes.filter(c => c.teacherId === currentUser.id).map(c => c.id)
   const childIds = (currentUser.childIds || []).filter(id => users.some(u => u.id === id && u.role === 'student'))
   const viewedChild = users.find(u => u.id === parentChildId && childIds.includes(u.id)) || users.find(u=>u.id===childIds[0])
-  const visibleAttempts = testAttempts.filter(a => role === 'admin' ? true : role === 'teacher' ? a.classId!==undefined && myClassIds.includes(a.classId) : role === 'student' ? a.studentId===currentUser.id : a.studentId!==undefined && childIds.includes(a.studentId))
-  const diagnosticStudents = users.filter(u=>u.role==='student' && (role==='admin'||role==='student'&&u.id===currentUser.id||role==='teacher'&&myClassIds.includes(u.classId||-1)||role==='parent'&&childIds.includes(u.id)))
+  const visibleAttempts = testAttempts.filter(a => isManager ? true : role === 'teacher' ? a.classId!==undefined && myClassIds.includes(a.classId) : role === 'student' ? a.studentId===currentUser.id : a.studentId!==undefined && childIds.includes(a.studentId))
+  const diagnosticStudents = users.filter(u=>u.role==='student' && (isManager||role==='student'&&u.id===currentUser.id||role==='teacher'&&myClassIds.includes(u.classId||-1)||role==='parent'&&childIds.includes(u.id)))
   const diagnosticAttempts=diagnosticStudentId?visibleAttempts.filter(a=>a.studentId===diagnosticStudentId):visibleAttempts
   const diagnosticProgress=diagnosticAttempts.slice().sort((a,b)=>new Date(a.createdAt).getTime()-new Date(b.createdAt).getTime()).slice(-8)
   const assignedToStudent = (testId:number, studentId:number) => {
@@ -588,11 +593,22 @@ function App() {
     try{await api(`/api/classes/${c.id}`,'DELETE');setClasses(old=>old.filter(x=>x.id!==c.id));setNotice('Sinf o‘chirildi.')}catch(err){setNotice(err instanceof Error?err.message:'Sinfni o‘chirib bo‘lmadi')}
   }
   async function toggleUser(u:DemoUser){
-    if(u.role==='admin')return
+    if(u.role==='admin'||(u.role==='assistant_admin'&&role!=='admin'))return
     try{
       const d=await api<{user:DemoUser}>(`/api/users/${u.id}`,'PATCH',{name:u.name,classId:u.classId,childIds:u.childIds,active:!u.active})
       setUsers(old=>old.map(x=>x.id===u.id?d.user:x));setNotice(u.active?'Hisob bloklandi.':'Hisob faollashtirildi.')
     }catch(err){setNotice(err instanceof Error?err.message:'Hisob holati o‘zgarmadi')}
+  }
+  async function toggleVerified(u:DemoUser){
+    if(!isManager||!['student','parent'].includes(u.role))return
+    try{const d=await api<{user:DemoUser}>(`/api/users/${u.id}`,'PATCH',{verified:!u.verified});setUsers(old=>old.map(x=>x.id===u.id?d.user:x));setNotice(u.verified?'Maktab tasdig‘i bekor qilindi.':'Hisob maktabga biriktirildi.')}
+    catch(err){setNotice(err instanceof Error?err.message:'Tasdiqlashda xatolik')}
+  }
+  async function createAssistant(e:FormEvent){
+    e.preventDefault()
+    try{const d=await api<{user:DemoUser}>('/api/users','POST',{name:assistantName,username:assistantLogin,password:assistantPassword,role:'assistant_admin'})
+      setUsers(old=>[...old,d.user]);setAssistantName('');setAssistantLogin('');setAssistantPassword('');setNotice('Yordamchi administrator yaratildi. Login va parolni xavfsiz yo‘l bilan bering.')}
+    catch(err){setNotice(err instanceof Error?err.message:'Yordamchi admin yaratilmadi')}
   }
   async function addClass(e:FormEvent){
     e.preventDefault();if(!newClassName.trim())return
@@ -619,7 +635,7 @@ function App() {
   }
   function editUser(u:DemoUser){setEditingUserId(u.id);setUserResetPassword('');setNewUserName(u.name);setNewUserUsername(u.username||'');setNewUserRole(u.role);setNewUserClassId(u.classId||classes[0]?.id||0);setNewParentChildIds(u.childIds||[]);setNewTeacherClassIds(classes.filter(c=>c.teacherId===u.id).map(c=>c.id))}
   async function deleteUser(u:DemoUser){
-    if(u.role==='admin'||u.id===currentUser.id){setNotice('Administratorni yoki o‘zingizni o‘chira olmaysiz.');return}
+    if(u.role==='admin'||(u.role==='assistant_admin'&&role!=='admin')||u.id===currentUser.id){setNotice('Administratorni yoki o‘zingizni o‘chira olmaysiz.');return}
     if(!window.confirm(`${u.name} hisobini faolsizlantirasizmi?`))return
     try{await api(`/api/users/${u.id}`,'DELETE');setUsers(old=>old.map(x=>x.id===u.id?{...x,active:false}:x));setNotice('Profil faolsizlantirildi.')}
     catch(err){setNotice(err instanceof Error?err.message:'Xatolik')}
@@ -1032,16 +1048,16 @@ function App() {
   }
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="sidebar-head"><div className="brand-mark">M</div><div className="brand-name">MATH-DIAGNOZ <small>{ROLE_NAMES[role].toUpperCase()} · PILOT</small></div></div><div className="sidebar-caption">ASOSIY BO‘LIMLAR</div><nav>{roleNav.map(n => <button key={n.id} onClick={() => {setPage(n.id);setNotice('')}} className={'nav-item ' + (page === n.id ? 'active' : '')}><span>{n.icon}</span>{n.label}</button>)}</nav><div className="side-footer">PILOT VERSIYA · v1.4</div></aside>
-    <div className="main-area"><header className="topbar"><div><span className="muted">MATH-DIAGNOZ</span><span className="slash"> / </span>{roleNav.find(n => n.id === page)?.label}</div><div className="topbar-actions"><button className="ghost" onClick={()=>setShowPublicPage(true)} title="Bosh sahifani ko‘rish">⌂ Bosh sahifa</button><span className="demo-pill">● MAHALLIY PILOT</span><span className="avatar">{currentUser.name.slice(0,1).toUpperCase()}</span><span>{currentUser.name}</span><button className="ghost" onClick={()=>{void logout()}}>Chiqish</button></div></header>
-      <main className="content"><div className="page-heading"><div><div className="eyebrow">BOSHQARUV TIZIMI</div><h1>{roleNav.find(n => n.id === page)?.label}</h1><p>Ta’lim materiallarini tizimli boshqarish va diagnostika qilish</p></div><span className="date">MATH-DIAGNOZ · sinov muhiti</span></div>
+    <aside className="sidebar"><div className="sidebar-head"><div className="brand-mark">M</div><div className="brand-name">MATH-DIAGNOZ <small>{ROLE_NAMES[role].toUpperCase()} · PILOT</small></div></div><div className="sidebar-caption">ASOSIY BO‘LIMLAR</div><nav>{roleNav.map(n => <button key={n.id} onClick={() => {setPage(n.id);setNotice('')}} className={'nav-item ' + (page === n.id ? 'active' : '')}><span>{n.icon}</span>{n.label}</button>)}</nav><div className="side-footer">MAKTAB PILOTI · v1.7</div></aside>
+    <div className="main-area"><header className="topbar"><div><span className="muted">MATH-DIAGNOZ</span><span className="slash"> / </span>{roleNav.find(n => n.id === page)?.label}</div><div className="topbar-actions"><button className="ghost" onClick={()=>setShowPublicPage(true)} title="Bosh sahifani ko‘rish">⌂ Bosh sahifa</button><span className="demo-pill">● NEON · RENDER PILOT</span><span className="avatar">{currentUser.name.slice(0,1).toUpperCase()}</span><span>{currentUser.name}</span><button className="ghost" onClick={()=>{void logout()}}>Chiqish</button></div></header>
+      <main className="content">{currentUser.verified===false&&<div className="md17-pending-banner"><strong>⌛ Maktab tasdig‘i kutilmoqda</strong><span>Hisobingiz yaratildi. Administrator sinfingizni yoki ota-ona maqomingizni tasdiqlaguncha ayrim imkoniyatlar yopiq. Ota-ona farzandini o‘zi biriktira olmaydi.</span></div>}<div className="page-heading"><div><div className="eyebrow">BOSHQARUV TIZIMI</div><h1>{roleNav.find(n => n.id === page)?.label}</h1><p>Ta’lim materiallarini tizimli boshqarish va diagnostika qilish</p></div><span className="date">MATH-DIAGNOZ · sinov muhiti</span></div>
       {notice && <div className="notice" role="status">{notice}<button className="ghost" onClick={() => setNotice('')}>×</button></div>}
-      {page==='dashboard'&&<section className="md13-welcome"><div><span className="md13-kicker">✦ MATH-DIAGNOZ · RAQAMLI TA’LIM</span><h2>Assalomu alaykum, {currentUser.name.split(' ')[0]}!</h2><p>{role==='admin'?'Barcha maktablar, sinflar va bilim natijalarini bitta joyda boshqaring.':role==='teacher'?'Har bir o‘quvchining o‘sishini kuzating va individual yordamni tashkil qiling.':role==='student'?'Yangi bilimlarni egallang, testlarda qatnashing va o‘z rekordingizni yangilang.':'Farzandlaringizning yutuqlari va bilim rivojlanishini kuzating.'}</p><div className="md-button-row"><button className="md13-welcome-btn" onClick={()=>setPage(role==='student'?'students':role==='parent'?'children':role==='teacher'?'assignments':'quarterly')}>{role==='admin'?'Chorak testlarini boshqarish':role==='teacher'?'Test tayinlash':role==='student'?'Testlarimni ochish':'Farzandlarim'} ↗</button><button className="md13-welcome-ghost" onClick={()=>setPage('diagnostics')}>Matematik pasport →</button></div></div><div className="md13-orbit" aria-hidden="true"><span>π</span><span>∑</span><span>√</span><span>△</span><strong>f(x)</strong></div></section>}
-      {page === 'dashboard' && role === 'admin' && <><section className="stat-grid"><div className="stat"><span>DARSLIKLAR</span><strong>{books.length}</strong><small>Elektron katalog</small></div><div className="stat"><span>BOBLAR</span><strong>{books.reduce((x,b)=>x+b.chapters.length,0)}</strong><small>Darslik bo‘limlari</small></div><div className="stat"><span>SAVOLLAR</span><strong>{questions.length}</strong><small>Test savollari</small></div><div className="stat"><span>TESTLAR</span><strong>{testSets.length}</strong><small>{testAttempts.length} ta sinov natijasi</small></div></section><div className="two-cols"><div className="panel"><div className="panel-head"><h2>Tezkor amallar</h2><span className="tag">Boshlash</span></div><div className="action-list"><button onClick={() => setPage('books')}>▤ <span>Yangi darslik qo‘shish</span> →</button><button onClick={() => setPage('chapters')}>▱ <span>Bob va mavzularni tahrirlash</span> →</button><button onClick={() => setPage('questions')}>☷ <span>Test savoli yaratish</span> →</button><button onClick={() => setPage('settings')}>⚙ <span>Test va admin sozlamalari</span> →</button><button onClick={() => setPage('system')}>◈ <span>Fayllar, zaxira va audit</span> →</button></div></div><div className="panel"><div className="panel-head"><h2>Ish holati va nazorat</h2></div><div className="steps"><div><i>1</i><span><b>4 ta kabinet va maktablar</b><small>Mahalliy pilotda ishlaydi</small></span></div><div><i>2</i><span><b>Word, PDF va test banki</b><small>Serverli saqlash faol</small></span></div><div><i>3</i><span><b>Login va choraklik testlar</b><small>Mahalliy server nazoratida</small></span></div><div><i>4</i><span><b>Reyting va diagnostika</b><small>Natijalardan hisoblanadi</small></span></div></div></div></div></>}
-      {page === 'dashboard' && role!=='admin' && <>
+      {page==='dashboard'&&<section className="md13-welcome"><div><span className="md13-kicker">✦ MATH-DIAGNOZ · RAQAMLI TA’LIM</span><h2>Assalomu alaykum, {currentUser.name.split(' ')[0]}!</h2><p>{isManager?'Barcha maktablar, sinflar va bilim natijalarini bitta joyda boshqaring.':role==='teacher'?'Har bir o‘quvchining o‘sishini kuzating va individual yordamni tashkil qiling.':role==='student'?'Yangi bilimlarni egallang, testlarda qatnashing va o‘z rekordingizni yangilang.':'Farzandlaringizning yutuqlari va bilim rivojlanishini kuzating.'}</p><div className="md-button-row"><button className="md13-welcome-btn" onClick={()=>setPage(role==='student'?'students':role==='parent'?'children':role==='teacher'?'assignments':'quarterly')}>{isManager?'Chorak testlarini boshqarish':role==='teacher'?'Test tayinlash':role==='student'?'Testlarimni ochish':'Farzandlarim'} ↗</button><button className="md13-welcome-ghost" onClick={()=>setPage('diagnostics')}>Matematik pasport →</button></div></div><div className="md13-orbit" aria-hidden="true"><span>π</span><span>∑</span><span>√</span><span>△</span><strong>f(x)</strong></div></section>}
+      {page === 'dashboard' && isManager && <><section className="stat-grid"><div className="stat"><span>DARSLIKLAR</span><strong>{books.length}</strong><small>Elektron katalog</small></div><div className="stat"><span>BOBLAR</span><strong>{books.reduce((x,b)=>x+b.chapters.length,0)}</strong><small>Darslik bo‘limlari</small></div><div className="stat"><span>SAVOLLAR</span><strong>{questions.length}</strong><small>Test savollari</small></div><div className="stat"><span>TESTLAR</span><strong>{testSets.length}</strong><small>{testAttempts.length} ta sinov natijasi</small></div></section><div className="two-cols"><div className="panel"><div className="panel-head"><h2>Tezkor amallar</h2><span className="tag">Boshlash</span></div><div className="action-list"><button onClick={() => setPage('books')}>▤ <span>Yangi darslik qo‘shish</span> →</button><button onClick={() => setPage('chapters')}>▱ <span>Bob va mavzularni tahrirlash</span> →</button><button onClick={() => setPage('questions')}>☷ <span>Test savoli yaratish</span> →</button>{role==='admin'&&<><button onClick={() => setPage('settings')}>⚙ <span>Test va admin sozlamalari</span> →</button><button onClick={() => setPage('system')}>◈ <span>Fayllar, zaxira va audit</span> →</button></>}</div></div><div className="panel"><div className="panel-head"><h2>Ish holati va nazorat</h2></div><div className="steps"><div><i>1</i><span><b>4 ta kabinet va maktablar</b><small>Mahalliy pilotda ishlaydi</small></span></div><div><i>2</i><span><b>Word, PDF va test banki</b><small>Serverli saqlash faol</small></span></div><div><i>3</i><span><b>Login va choraklik testlar</b><small>Mahalliy server nazoratida</small></span></div><div><i>4</i><span><b>Reyting va diagnostika</b><small>Natijalardan hisoblanadi</small></span></div></div></div></div></>}
+      {page === 'dashboard' && !isManager && <>
         <section className="stat-grid">
           <div className="stat"><span>KABINET</span><strong className="stat-word">{ROLE_NAMES[role]}</strong><small>{currentUser.name}</small></div>
-          <div className="stat"><span>{role==='teacher'?'MENING SINFLARIM':role==='student'?'SINFIM':'FARZANDLAR'}</span><strong>{role==='teacher'?myClassIds.length:role==='student'?currentClass?.name||'—':childIds.length}</strong><small>Demo ro‘yxat</small></div>
+          <div className="stat"><span>{role==='teacher'?'MENING SINFLARIM':role==='student'?'SINFIM':'FARZANDLAR'}</span><strong>{role==='teacher'?myClassIds.length:role==='student'?currentClass?.name||'—':childIds.length}</strong><small>Maktab ma’lumotlari</small></div>
           <div className="stat"><span>NATIJALAR</span><strong>{visibleAttempts.length}</strong><small>Saqlangan urinishlar</small></div>
           <div className="stat"><span>TESTLAR</span><strong>{role==='student'?eligibleTests.length:testSets.length}</strong><small>{role==='student'?'Menga tayinlangan':'Katalogdagi testlar'}</small></div>
         </section>
@@ -1050,7 +1066,7 @@ function App() {
           <div className="md-button-row"><button className="btn btn-primary" onClick={()=>setPage(role==='student'?'students':role==='teacher'?'assignments':'children')}>{role==='student'?'Testlarim':role==='teacher'?'Testlarni tayinlash':'Farzandlarim'} →</button><button className="btn btn-outline" onClick={()=>setPage('reports')}>Hisobotlar →</button><button className="btn btn-outline" onClick={()=>setPage('ranking')}>🏆 Reyting →</button>{role==='student'&&<button className="btn btn-outline" onClick={()=>setPage('practice')}>🧠 Individual mashqlar →</button>}</div>
         </section>
       </>}
-      {page === 'books' && (role==='admin'||role==='teacher') && <>
+      {page === 'books' && (isManager||role==='teacher') && <>
         <section className="panel" style={{marginBottom:20}}>
           <div className="panel-head"><h2>Sinflar bo‘yicha elektron kutubxona</h2><span className="tag">5–9-sinflar</span></div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(155px, 1fr))',gap:12,marginTop:16}}>
@@ -1099,7 +1115,7 @@ function App() {
           </section>
         </div>
       </>}
-       {page === 'chapters' && (role==='admin'||role==='teacher') && <div className="two-cols">
+       {page === 'chapters' && (isManager||role==='teacher') && <div className="two-cols">
          <section className="panel">
            <div className="panel-head"><h2>Bob va mavzular ro‘yxati</h2><span className="tag">{currentBook?.chapters.length ?? 0} bob</span></div>
            <label className="field-label">Darslik{bookSelect}</label>
@@ -1130,7 +1146,7 @@ function App() {
            </>}
          </section>
        </div>}
-       {page === 'questions' && (role==='admin'||role==='teacher') && <>
+       {page === 'questions' && (isManager||role==='teacher') && <>
          <section className="panel" style={{marginBottom:20}}>
            <div className="panel-head"><h2>Word orqali test yuklash</h2><span className="tag">DOCX · Shablon</span></div>
            <p className="hint">Shablonni yuklab oling, Wordda savollar va rasmlarni joylashtiring. Rasm SAVOL: yoki A)–D) qatoridan keyin kelsa, shu joyga biriktiriladi. Har bir savolning to‘g‘ri javobini kiriting.</p>
@@ -1213,7 +1229,7 @@ function App() {
              <button className="btn btn-outline" type="button" style={{marginTop:16}} onClick={()=>{setPage('tests');setPreviewAnswers({});setPreviewFinished(false)}}>▶ Bob testini sinab ko‘rish</button>
            </section>
        </div></>}
-       {page === 'tests' && (role==='admin'||role==='teacher') && <>
+       {page === 'tests' && (isManager||role==='teacher') && <>
          <section className="panel" style={{marginBottom:18}}>
            <div className="panel-head"><h2>Testlarni yaratish va boshqarish</h2><span className="tag">{testSets.length} ta test</span></div>
            <p className="hint">Avval «Savollar banki»da bobga savollar qo‘shing. Keyin ularni tanlab alohida test tuzing. Yangi test avtomatik qoralama bo‘ladi.</p>
@@ -1308,10 +1324,10 @@ function App() {
         <h2>5–9-sinf elektron kutubxonasi</h2><p className="hint">Darsliklar o‘quvchi uchun ko‘rish rejimida. Yangi PDFlar serverda saqlanadi; eski fayllarni administrator «Tizim va zaxira» sahifasidan ko‘chirishi mumkin.</p>
         {books.filter(b=>role!=='student'||b.grade===currentClass?.grade).map(b=><div className="md-v08-list" key={b.id}><div><strong>{b.grade}-sinf · {b.title}</strong><small>{b.author} · {b.chapters.length} ta bob</small></div><button className="btn btn-outline" disabled={!b.pdfKey} onClick={()=>void openPdf(b)}>{b.pdfKey?'PDFni ochish':'PDF mavjud emas'}</button><div className="md-v08-chapters">{b.chapters.map((c,i)=><span key={c.id}>{i+1}. {c.title}{c.startPage?` (${c.startPage}–${c.endPage||'?'}-sahifalar)`:''}</span>)}</div></div>)}
       </section>}
-      {page === 'students' && (role==='admin'||role==='teacher') && <section className="panel">
-        <div className="panel-head"><h2>O‘quvchilar ro‘yxati va o‘zlashtirish</h2><span className="tag">{users.filter(u=>u.role==='student'&&(role==='admin'||myClassIds.includes(u.classId||-1))).length} nafar</span></div>
+      {page === 'students' && (isManager||role==='teacher') && <section className="panel">
+        <div className="panel-head"><h2>O‘quvchilar ro‘yxati va o‘zlashtirish</h2><span className="tag">{users.filter(u=>u.role==='student'&&(isManager||myClassIds.includes(u.classId||-1))).length} nafar</span></div>
         <p className="hint">Admin barcha demo sinflarini, o‘qituvchi esa faqat biriktirilgan sinflarini ko‘radi. O‘quvchi profillari «Foydalanuvchilar» bo‘limida boshqariladi.</p>
-        {classes.filter(c=>role==='admin'||myClassIds.includes(c.id)).map(c=><div key={c.id} className="md-v08-list"><strong>{c.name} · {c.grade}-sinf</strong>
+        {classes.filter(c=>isManager||myClassIds.includes(c.id)).map(c=><div key={c.id} className="md-v08-list"><strong>{c.name} · {c.grade}-sinf</strong>
           {users.filter(u=>u.role==='student'&&u.classId===c.id).length===0?<small>Bu sinfda hali o‘quvchi yo‘q.</small>:users.filter(u=>u.role==='student'&&u.classId===c.id).map(u=>{
             const attempts=testAttempts.filter(a=>a.studentId===u.id)
             const avg=attempts.length?Math.round(attempts.reduce((sum,a)=>sum+a.score/Math.max(1,a.total),0)/attempts.length*100):null
@@ -1319,7 +1335,7 @@ function App() {
           })}
         </div>)}
       </section>}
-      {page === 'schools' && role==='admin' && <div className="md-v12-schools-page">
+      {page === 'schools' && isManager && <div className="md-v12-schools-page">
         <section className="panel md-v12-school-overview">
           <div className="panel-head"><div><h2>🏫 Maktablar — yagona ro‘yxat</h2><p className="hint">Maktabni bosing: sinflar, ro‘yxatdan o‘tgan o‘quvchilar, platformaga kirganlar va test natijalari shu sahifaning o‘zida ochiladi.</p></div><button className="btn btn-primary" onClick={()=>{clearSchoolForm();setShowSchoolForm(v=>!v)}}>{showSchoolForm?'Formani yopish':'+ Maktab qo‘shish'}</button></div>
           <div className="md-v12-metrics"><div><span>Maktablar</span><b>{schools.length}</b></div><div><span>Ro‘yxatdagi o‘quvchilar</span><b>{users.filter(u=>u.role==='student').length}</b></div><div><span>Tizimga kirgan o‘quvchilar</span><b>{users.filter(u=>u.role==='student'&&u.lastLoginAt).length}</b></div><div><span>O‘quvchi kirgan maktablar</span><b>{schools.filter(s=>users.some(u=>u.role==='student'&&u.lastLoginAt&&classes.some(c=>c.id===u.classId&&c.schoolId===s.id))).length}</b></div></div>
@@ -1351,17 +1367,17 @@ function App() {
         <div className="md-v12-grade-nav">{[5,6,7,8,9].map(g=><button key={g} type="button" onClick={()=>setQuarterGrade(g)} className={quarterGrade===g?'selected':''}>{g}-sinf</button>)}</div>
         <div className="md-v12-quarter-grid">{[1,2,3,4].map(q=>{const enabled=quarterIsEnabled(quarterGrade,q);const ts=testSets.filter(t=>t.kind==='quarter'&&(t.quarter||1)===q&&quarterTestGrade(t)===quarterGrade);return <div key={q} className={'md-v12-quarter-card '+(enabled?'enabled':'disabled')}>
           <div className="md-v12-quarter-icon">{enabled?'🔓':'🔒'}</div><h3>{q}-chorak</h3><p>{enabled?'Faol — test topshirishga ruxsat':'Hali faol emas'}</p><small>{ts.length} ta choraklik test</small>
-          {role==='admin'&&<button className={'btn '+(enabled?'btn-outline':'btn-primary')} onClick={()=>toggleQuarter(quarterGrade,q)}>{enabled?'Chorakni yopish':'Chorakni ochish'}</button>}
+          {isManager&&<button className={'btn '+(enabled?'btn-outline':'btn-primary')} onClick={()=>toggleQuarter(quarterGrade,q)}>{enabled?'Chorakni yopish':'Chorakni ochish'}</button>}
           {role==='teacher'&&<span className="tag">{enabled?'Ochiq':'Yopiq'} · admin boshqaradi</span>}
           {role==='student'&&<span className="tag">{enabled?'Faol':'Hali faol emas'}</span>}
           <button className="btn btn-outline" type="button" onClick={()=>setQuarterNumber(q)}>{quarterNumber===q?'Tanlangan':'Testlarni ko‘rish'}</button>
         </div>})}</div>
-        <div className="md-v12-section-head"><h3>{quarterGrade}-sinf · choraklik testlar</h3>{(role==='admin'||role==='teacher')&&<button className="btn btn-primary" type="button" onClick={()=>{const book=books.find(b=>b.grade===quarterGrade);if(!book){setCatalogGrade(quarterGrade);setPage('books');setNotice(`${quarterGrade}-sinf uchun avval darslik yarating.`);return}setSelectedBook(book.id);setSelectedChapter(book.chapters[0]?.id||0);setDraftTestKind('quarter');setDraftTestQuarter(quarterNumber);setPage('tests');setNotice(`${quarterGrade}-sinf, ${quarterNumber}-chorak uchun savollarni tanlab test yarating.`)}}>+ Chorak testini yaratish</button>}</div>
+        <div className="md-v12-section-head"><h3>{quarterGrade}-sinf · choraklik testlar</h3>{(isManager||role==='teacher')&&<button className="btn btn-primary" type="button" onClick={()=>{const book=books.find(b=>b.grade===quarterGrade);if(!book){setCatalogGrade(quarterGrade);setPage('books');setNotice(`${quarterGrade}-sinf uchun avval darslik yarating.`);return}setSelectedBook(book.id);setSelectedChapter(book.chapters[0]?.id||0);setDraftTestKind('quarter');setDraftTestQuarter(quarterNumber);setPage('tests');setNotice(`${quarterGrade}-sinf, ${quarterNumber}-chorak uchun savollarni tanlab test yarating.`)}}>+ Chorak testini yaratish</button>}</div>
         <div className="md-v12-quarter-filter"><label>Chorak<select value={quarterNumber} onChange={e=>setQuarterNumber(Number(e.target.value))}>{[1,2,3,4].map(q=><option key={q} value={q}>{q}-chorak</option>)}</select></label></div>
-        {testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).length===0?<div className="empty">Bu chorak uchun test hali yaratilmagan. «Savollar banki»da savollar tuzing, so‘ng «Testlarni boshqarish»da turini «Choraklik test» deb tanlang.</div>:testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).map(t=>{const used=assignments.filter(a=>a.testId===t.id),count=testAttempts.filter(a=>a.testId===t.id).length;return <div className="md-v12-quarter-test" key={t.id}><div><strong>{t.title}</strong><small>{t.questionIds.length} ta savol · {testDuration(t)} daqiqa · {count} yakunlangan urinish</small><small>Tayinlangan: {used.map(a=>classes.find(c=>c.id===a.classId)?.name||'Sinf').join(', ')||'Hech bir sinfga yuborilmagan'}</small></div><div className="md-button-row"><span className={t.active&&quarterIsAvailable(t)?'md-v12-online':'md-v12-offline'}>{t.active&&quarterIsAvailable(t)?'Ochiq':'Yopiq'}</span>{(role==='admin'||role==='teacher')&&<button className="btn btn-outline" onClick={()=>{setAssignmentTestId(t.id);setPage('assignments')}}>Sinfga yuborish →</button>}{role==='student'&&assignedToStudent(t.id,currentUser.id)&&t.active&&quarterIsAvailable(t)&&<button className="btn btn-primary" onClick={()=>startStudentTest(t.id)}>Testni boshlash →</button>}</div></div>})}
+        {testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).length===0?<div className="empty">Bu chorak uchun test hali yaratilmagan. «Savollar banki»da savollar tuzing, so‘ng «Testlarni boshqarish»da turini «Choraklik test» deb tanlang.</div>:testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).map(t=>{const used=assignments.filter(a=>a.testId===t.id),count=testAttempts.filter(a=>a.testId===t.id).length;return <div className="md-v12-quarter-test" key={t.id}><div><strong>{t.title}</strong><small>{t.questionIds.length} ta savol · {testDuration(t)} daqiqa · {count} yakunlangan urinish</small><small>Tayinlangan: {used.map(a=>classes.find(c=>c.id===a.classId)?.name||'Sinf').join(', ')||'Hech bir sinfga yuborilmagan'}</small></div><div className="md-button-row"><span className={t.active&&quarterIsAvailable(t)?'md-v12-online':'md-v12-offline'}>{t.active&&quarterIsAvailable(t)?'Ochiq':'Yopiq'}</span>{(isManager||role==='teacher')&&<button className="btn btn-outline" onClick={()=>{setAssignmentTestId(t.id);setPage('assignments')}}>Sinfga yuborish →</button>}{role==='student'&&assignedToStudent(t.id,currentUser.id)&&t.active&&quarterIsAvailable(t)&&<button className="btn btn-primary" onClick={()=>startStudentTest(t.id)}>Testni boshlash →</button>}</div></div>})}
         <p className="hint">Chorak faolligi serverdagi bazaga saqlanadi. O‘quvchi uchun sinfga tayinlash, testning «Faol» holati, chorak ochiqligi va urinish limiti birgalikda tekshiriladi.</p>
       </section>}
-      {page === 'classes' && role==='admin'  && <div className="two-cols">
+      {page === 'classes' && isManager  && <div className="two-cols">
         <section className="panel"><h2>Maktab sinflari</h2>{classes.map(c=><div className="md-v08-list" key={c.id}>
         <strong>{c.name} · {c.grade}-sinf</strong><small>{schools.find(s=>s.id===c.schoolId)?.name||'Maktab belgilanmagan'} · {users.filter(u=>u.role==='student'&&u.classId===c.id&&u.active).length} o‘quvchi</small>
         <label>Maktab<select value={c.schoolId??0} onChange={e=>void updateClass(c,{schoolId:Number(e.target.value)})}>{schools.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
@@ -1369,13 +1385,31 @@ function App() {
         <button className="btn md-btn-danger" disabled={users.some(u=>u.classId===c.id&&u.active)||assignments.some(a=>a.classId===c.id)} onClick={()=>void deleteClass(c)}>O‘chirish</button></div>)}</section>
         <section className="panel"><h2>Yangi sinf</h2><form className="form" onSubmit={addClass}><label>Sinf nomi<input value={newClassName} onChange={e=>setNewClassName(e.target.value)} placeholder="Masalan: 6-B" required/></label><label>Maktab<select required value={classSchoolId} onChange={e=>setClassSchoolId(Number(e.target.value))}>{schools.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label>O‘quv darajasi<select value={newClassGrade} onChange={e=>setNewClassGrade(Number(e.target.value))}>{grades.map(g=><option key={g} value={g}>{g}-sinf</option>)}</select></label><button className="btn btn-primary">+ Sinf qo‘shish</button></form><p className="hint">O‘qituvchini chapdagi ro‘yxatda biriktirish mumkin.</p></section>
       </div>}
-      {page === 'users' && role==='admin' && <div className="two-cols">
-        <section className="panel"><h2>Foydalanuvchilar · {users.length} ta</h2><div className="md-v08-scroll">{users.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row"><button className="btn btn-outline" onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.id===currentUser.id||!u.active} onClick={()=>void deleteUser(u)}>O‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
-        <section className="panel"><h2>{editingUserId===null?'Yangi foydalanuvchi':'Profilni tahrirlash'}</h2><form className="form" onSubmit={addOrEditUser}><label>Ism / profil nomi<input value={newUserName} required onChange={e=>setNewUserName(e.target.value)}/></label>{editingUserId===null&&<><label>Yangi login<input value={newUserUsername} required minLength={3} maxLength={32} placeholder="Masalan: ustoz2026" onChange={e=>setNewUserUsername(e.target.value)}/></label><label>Vaqtinchalik parol<input type="password" value={newUserPassword} minLength={8} required placeholder="Kamida 8 belgi" onChange={e=>setNewUserPassword(e.target.value)}/></label></>}<label>Rol<select value={newUserRole} onChange={e=>setNewUserRole(e.target.value as DemoRole)}><option value="teacher">O‘qituvchi</option><option value="student">O‘quvchi</option><option value="parent">Ota-ona</option></select></label>{newUserRole==='student'&&<label>Sinf<select value={newUserClassId} onChange={e=>setNewUserClassId(Number(e.target.value))}>{classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}{newUserRole==='teacher'&&<div><strong>O‘qituvchiga biriktiriladigan sinflar</strong>{classes.map(c=><label key={c.id} className="md-v08-check"><input type="checkbox" checked={newTeacherClassIds.includes(c.id)} onChange={e=>setNewTeacherClassIds(old=>e.target.checked?[...old,c.id]:old.filter(id=>id!==c.id))}/>{c.name}</label>)}</div>}{newUserRole==='parent'&&<div><strong>Farzandlarni tanlash (bir nechtasi mumkin)</strong>{users.filter(u=>u.role==='student').map(u=><label key={u.id} className="md-v08-check"><input type="checkbox" checked={newParentChildIds.includes(u.id)} onChange={e=>setNewParentChildIds(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}/>{u.name}</label>)}</div>}{editingUserId!==null&&<label>Yangi parol (ixtiyoriy, kamida 8 belgi)<input type="password" minLength={8} value={userResetPassword} onChange={e=>setUserResetPassword(e.target.value)} placeholder="Parolni o‘zgartirmaslik uchun bo‘sh qoldiring"/></label>}<div className="md-button-row"><button className="btn btn-primary">Saqlash</button>{editingUserId!==null&&<button type="button" className="btn btn-outline" onClick={()=>{setEditingUserId(null);setNewUserName('')}}>Bekor qilish</button>}</div></form><p className="hint">Yangi foydalanuvchi login va parol bilan kiradi. Parol xeshi mahalliy SQLite bazada saqlanadi. Ota-ona va farzand aloqasini administrator belgilaydi.</p></section>
+
+      {page === 'admins' && role==='admin' && <div className="md17-admin-layout">
+        <section className="panel md17-admin-intro">
+          <div className="md17-admin-icon">♛</div><h2>Super-admin boshqaruvi</h2>
+          <p>Bosh administrator barcha maktablar, tizim sozlamalari, zaxiralar va yordamchi administratorlarni boshqaradi. <b>Yordamchi admin</b> maktablar, sinflar, testlar, o‘qituvchilar va o‘quvchilar bilan ishlaydi, lekin super-adminni yoki tizim zaxiralarini o‘zgartira olmaydi.</p>
+          <div className="md17-admin-grid"><div><small>SUPER-ADMIN</small><b>{users.filter(u=>u.role==='admin').length}</b></div><div><small>YORDAMCHI ADMIN</small><b>{users.filter(u=>u.role==='assistant_admin'&&u.active).length}</b></div><div><small>TASDIQ KUTAYOTGANLAR</small><b>{users.filter(u=>u.verified===false&&u.active).length}</b></div></div>
+        </section>
+        <section className="panel">
+          <h2>Yordamchi admin yaratish</h2><p className="hint">Bu hisobni faqat super-admin yarata oladi. O‘qituvchi yoki ota-ona o‘zi administratorga aylana olmaydi.</p>
+          <form className="form" onSubmit={e=>void createAssistant(e)}><label>Ism-familiya<input value={assistantName} onChange={e=>setAssistantName(e.target.value)} minLength={2} required placeholder="Maktab administratori"/></label>
+          <label>Login<input value={assistantLogin} onChange={e=>setAssistantLogin(e.target.value)} minLength={3} maxLength={32} pattern="[a-zA-Z0-9._-]+" required placeholder="yordamchi_admin"/></label>
+          <label>Vaqtinchalik parol<input type="password" value={assistantPassword} onChange={e=>setAssistantPassword(e.target.value)} minLength={8} required autoComplete="new-password"/></label>
+          <button className="btn btn-primary" type="submit">＋ Yordamchi admin yaratish</button></form>
+        </section>
+        <section className="panel md17-admin-list"><h2>Administratorlar</h2>
+          {users.filter(u=>u.role==='admin'||u.role==='assistant_admin').map(u=><div className="md17-admin-item" key={u.id}><div className="md17-admin-avatar">{u.role==='admin'?'♛':'♟'}</div><div><b>{u.name}</b><small>@{u.username} · {ROLE_NAMES[u.role]} · {u.active?'Faol':'Bloklangan'}</small></div>{u.role==='assistant_admin'&&<button className="btn btn-outline" onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button>}</div>)}
+        </section>
       </div>}
-      {page === 'assignments' && (role==='admin'||role==='teacher') && <div className="two-cols">
-        <section className="panel"><h2>Testni sinfga yuborish</h2><form className="form" onSubmit={assignTest}><label>Test<select value={assignmentTestId} onChange={e=>setAssignmentTestId(Number(e.target.value))}><option value={0}>Testni tanlang</option>{testSets.filter(t=>t.active).map(t=><option key={t.id} value={t.id}>{t.title} ({books.find(b=>b.id===t.bookId)?.grade}-sinf)</option>)}</select></label><label>Sinf<select value={assignmentClassId} onChange={e=>setAssignmentClassId(Number(e.target.value))}>{classes.filter(c=>role==='admin'||myClassIds.includes(c.id)).map(c=><option key={c.id} value={c.id}>{c.name} ({c.grade}-sinf)</option>)}</select></label><p className="hint">Faqat faol test yuboriladi. Test darsligi darajasi tanlangan sinf bilan mos bo‘lishi kerak.</p><button className="btn btn-primary" disabled={!assignmentTestId}>⇢ Testni sinfga yuborish</button></form></section>
-        <section className="panel"><h2>Yuborilgan testlar · {assignments.length} ta</h2>{assignments.length===0?<div className="empty">Hali sinfga test yuborilmagan.</div>:assignments.filter(a=>role==='admin'||myClassIds.includes(a.classId)).map(a=><div className="md-v08-list" key={a.id}><div><strong>{testSets.find(t=>t.id===a.testId)?.title||'O‘chirilgan test'}</strong><small>{classes.find(c=>c.id===a.classId)?.name||'Sinf topilmadi'} · {new Date(a.createdAt).toLocaleString('uz-UZ')}</small></div><button className="btn md-btn-danger" onClick={()=>{if(window.confirm('Testni bu sinfdan olib tashlaysizmi?'))setAssignments(old=>old.filter(x=>x.id!==a.id))}}>Bekor qilish</button></div>)}</section>
+      {page === 'users' && isManager && <div className="two-cols">
+        <section className="panel"><h2>Foydalanuvchilar · {users.length} ta</h2><div className="md-v08-scroll">{users.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {u.verified===false&&<span className="md17-pending-tag">Tasdiq kutilmoqda</span>} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row">{['student','parent'].includes(u.role)&&<button className="btn btn-outline" onClick={()=>void toggleVerified(u)}>{u.verified===false?'✓ Tasdiqlash':'Tasdiqni bekor qilish'}</button>}<button className="btn btn-outline" disabled={u.role==='admin'&&u.id!==currentUser.id||u.role==='assistant_admin'&&role!=='admin'} onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id||!u.active} onClick={()=>void deleteUser(u)}>O‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
+        <section className="panel"><h2>{editingUserId===null?'Yangi foydalanuvchi':'Profilni tahrirlash'}</h2><form className="form" onSubmit={addOrEditUser}><label>Ism / profil nomi<input value={newUserName} required onChange={e=>setNewUserName(e.target.value)}/></label>{editingUserId===null&&<><label>Yangi login<input value={newUserUsername} required minLength={3} maxLength={32} placeholder="Masalan: ustoz2026" onChange={e=>setNewUserUsername(e.target.value)}/></label><label>Vaqtinchalik parol<input type="password" value={newUserPassword} minLength={8} required placeholder="Kamida 8 belgi" onChange={e=>setNewUserPassword(e.target.value)}/></label></>}<label>Rol<select value={newUserRole} onChange={e=>setNewUserRole(e.target.value as DemoRole)}>{role==='admin'&&<option value="assistant_admin">Yordamchi admin</option>}<option value="teacher">O‘qituvchi</option><option value="student">O‘quvchi</option><option value="parent">Ota-ona</option></select></label>{newUserRole==='student'&&<label>Sinf<select value={newUserClassId} onChange={e=>setNewUserClassId(Number(e.target.value))}>{classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}{newUserRole==='teacher'&&<div><strong>O‘qituvchiga biriktiriladigan sinflar</strong>{classes.map(c=><label key={c.id} className="md-v08-check"><input type="checkbox" checked={newTeacherClassIds.includes(c.id)} onChange={e=>setNewTeacherClassIds(old=>e.target.checked?[...old,c.id]:old.filter(id=>id!==c.id))}/>{c.name}</label>)}</div>}{newUserRole==='parent'&&<div><strong>Farzandlarni tanlash (bir nechtasi mumkin)</strong>{users.filter(u=>u.role==='student').map(u=><label key={u.id} className="md-v08-check"><input type="checkbox" checked={newParentChildIds.includes(u.id)} onChange={e=>setNewParentChildIds(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}/>{u.name}</label>)}</div>}{editingUserId!==null&&<label>Yangi parol (ixtiyoriy, kamida 8 belgi)<input type="password" minLength={8} value={userResetPassword} onChange={e=>setUserResetPassword(e.target.value)} placeholder="Parolni o‘zgartirmaslik uchun bo‘sh qoldiring"/></label>}<div className="md-button-row"><button className="btn btn-primary">Saqlash</button>{editingUserId!==null&&<button type="button" className="btn btn-outline" onClick={()=>{setEditingUserId(null);setNewUserName('')}}>Bekor qilish</button>}</div></form><p className="hint">Yangi foydalanuvchi login va parol bilan kiradi. Parollar Neon PostgreSQL bazasida xesh shaklida saqlanadi. Ota-ona va farzand aloqasini administrator belgilaydi.</p></section>
+      </div>}
+      {page === 'assignments' && (isManager||role==='teacher') && <div className="two-cols">
+        <section className="panel"><h2>Testni sinfga yuborish</h2><form className="form" onSubmit={assignTest}><label>Test<select value={assignmentTestId} onChange={e=>setAssignmentTestId(Number(e.target.value))}><option value={0}>Testni tanlang</option>{testSets.filter(t=>t.active).map(t=><option key={t.id} value={t.id}>{t.title} ({books.find(b=>b.id===t.bookId)?.grade}-sinf)</option>)}</select></label><label>Sinf<select value={assignmentClassId} onChange={e=>setAssignmentClassId(Number(e.target.value))}>{classes.filter(c=>isManager||myClassIds.includes(c.id)).map(c=><option key={c.id} value={c.id}>{c.name} ({c.grade}-sinf)</option>)}</select></label><p className="hint">Faqat faol test yuboriladi. Test darsligi darajasi tanlangan sinf bilan mos bo‘lishi kerak.</p><button className="btn btn-primary" disabled={!assignmentTestId}>⇢ Testni sinfga yuborish</button></form></section>
+        <section className="panel"><h2>Yuborilgan testlar · {assignments.length} ta</h2>{assignments.length===0?<div className="empty">Hali sinfga test yuborilmagan.</div>:assignments.filter(a=>isManager||myClassIds.includes(a.classId)).map(a=><div className="md-v08-list" key={a.id}><div><strong>{testSets.find(t=>t.id===a.testId)?.title||'O‘chirilgan test'}</strong><small>{classes.find(c=>c.id===a.classId)?.name||'Sinf topilmadi'} · {new Date(a.createdAt).toLocaleString('uz-UZ')}</small></div><button className="btn md-btn-danger" onClick={()=>{if(window.confirm('Testni bu sinfdan olib tashlaysizmi?'))setAssignments(old=>old.filter(x=>x.id!==a.id))}}>Bekor qilish</button></div>)}</section>
       </div>}
       {page === 'children' && role==='parent' && <section className="panel"><h2>Farzandlarim</h2><p className="hint">Ota-onaga bir nechta farzand biriktirish mumkin. Har birining natijalari alohida ko‘rsatiladi.</p>{childIds.length===0?<div className="empty">Hali sizga farzand biriktirilmagan. Admin panelida bog‘lang.</div>:<><label className="field-label">Farzand<select value={viewedChild?.id??''} onChange={e=>setParentChildId(Number(e.target.value))}>{childIds.map(id=>{const u=users.find(x=>x.id===id);return <option key={id} value={id}>{u?.name||id} · {classes.find(c=>c.id===u?.classId)?.name||''}</option>})}</select></label><div className="md-v08-profile"><h3>{viewedChild?.name}</h3><p>{classes.find(c=>c.id===viewedChild?.classId)?.name||'Sinf yo‘q'}</p>{testAttempts.filter(a=>a.studentId===viewedChild?.id).length===0?<p>Hozircha test natijalari mavjud emas.</p>:testAttempts.filter(a=>a.studentId===viewedChild?.id).map(a=><div className="md-v08-list" key={a.id}><strong>{a.testTitle}</strong><span>{a.score}/{a.total} · {Math.round(a.score/a.total*100)}% · {a.passed?'O‘tdi':'O‘tmadi'}</span><small>{new Date(a.createdAt).toLocaleString('uz-UZ')}</small>{a.topicResults.map(t=><small key={t.topic}>{t.topic}: {t.correct}/{t.total}</small>)}</div>)}</div></>}</section>}
       {page === 'diagnostics' && <section className="panel">
