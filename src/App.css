@@ -301,3 +301,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .md21-parent-chip{background:#e9f3ff;border:1px solid #bfdaf6;border-radius:999px;padding:7px 11px;color:#225b94;cursor:pointer;font-size:11px;font-weight:650}
 .md21-parent-chip:hover{background:#dcecff}
 @media(max-width:650px){.md21-parent-class{align-items:flex-start;flex-direction:column}.md21-parent-class-count{white-space:normal}}
+
+/* v2.6 — compact textbook actions; keep existing blue-white theme */
+.md-book-item{border:1px solid #dbe3ed;border-radius:12px;padding:12px;margin-bottom:10px;background:#fff}
+.md-book-item-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.md-book-item-info{min-width:0;flex:1}
+.md-book-item-title{font-weight:750;color:#163c65;font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+.md-book-item-detail{color:#687e98;font-size:12px;line-height:1.5;margin:5px 0 11px;overflow-wrap:anywhere}
+.md-book-actions{display:flex;gap:7px;flex-wrap:wrap}
+.md-book-action{display:inline-flex;gap:5px;align-items:center;justify-content:center;padding:7px 10px;min-height:34px;border:1px solid #cfdef0;border-radius:9px;background:#f7fbff;color:#16528f;font:inherit;font-weight:650;font-size:12px;line-height:1.2;cursor:pointer;transition:background-color .15s,border-color .15s}
+.md-book-action:hover:not(:disabled){background:#e9f3ff;border-color:#8bb6ee}
+.md-book-action:focus-visible{outline:2px solid #0a71c9;outline-offset:2px}
+.md-book-action:disabled{opacity:.48;cursor:not-allowed}
+.md-book-action-selected{background:#e7f2ff;border-color:#4283cf}
+.md-book-action-danger{color:#b44141;background:#fffafa;border-color:#f0d1cf}
+.md-book-action-danger:hover:not(:disabled){background:#fff0ef;border-color:#e4a5a1}
+.md-book-edit{margin-top:12px;padding:12px;background:#f5f9ff;border:1px solid #dce9f8;border-radius:10px;display:flex;flex-direction:column;gap:11px}
+.md-book-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.md-book-edit label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:650;color:#23496e;min-width:0}
+.md-book-edit input{max-width:100%;width:100%;min-width:0;box-sizing:border-box}
+.md-book-edit-footer{display:flex;flex-wrap:wrap;gap:8px}
+.md-book-edit-footer .btn{font-size:12px;padding:9px 13px}
+@media(max-width:720px){.md-book-edit-grid{grid-template-columns:1fr}.md-book-actions{gap:6px}.md-book-action{padding:8px 9px}}

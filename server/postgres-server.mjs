@@ -4,6 +4,7 @@
 // HTTPS, external audit and production-grade security are still required for public use.
 import { createServer } from 'node:http'
 import { initV2Schema, handleV2 } from './v2-module.mjs'
+import { CatalogError, patchBookCatalog, removeBookCatalog, unusedPdfKey } from './book-catalog.mjs'
 import { get, all, run, initSchema, ensureSchool, backupTables, filePut, fileGet, getClient } from './postgres-db.mjs'
 import { createGzip } from 'node:zlib'
 import { randomBytes, scryptSync, createHash, timingSafeEqual } from 'node:crypto'
@@ -506,6 +507,47 @@ const server=createServer(async(req,res)=>{
       }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
       await audit(actor,'user.permanent_delete',`id=${id}; role=${victim.role}`)
       return send(res,200,{ok:true,deleted:true,id})
+    }
+    // v2.6: atomic textbook edit/delete, with dependent question/test protection.
+    const bookAction=/^\/api\/books\/(\d+)$/.exec(path)
+    if(bookAction&&['PATCH','DELETE'].includes(method)){
+      if(!(isOperator(actor)||actor.role==='teacher'))return fail(res,403,'Darsliklarni boshqarishga ruxsat yo‘q')
+      if(method==='DELETE'&&!isOperator(actor))return fail(res,403,'Darslikni faqat administrator o‘chirishi mumkin')
+      const bookId=Number(bookAction[1])
+      const changes=method==='PATCH'?await readJson(req):null
+      const client=await getClient()
+      let result,oldAssetId=null
+      try{
+        await client.query('BEGIN')
+        // Serialize catalog actions; avoid simultaneous edits overwriting each other.
+        await client.query("INSERT INTO app_state(key,value) VALUES('books','[]') ON CONFLICT(key) DO NOTHING")
+        const stored=await client.query("SELECT value FROM app_state WHERE key='books' FOR UPDATE")
+        const existing=JSON.parse(stored.rows[0].value)
+        if(method==='PATCH'){
+          result=patchBookCatalog(existing,bookId,changes)
+          if(result.book.pdfKey!==result.previousPdfKey && result.book.pdfKey?.startsWith('server:')){
+            const assetId=result.book.pdfKey.slice(7)
+            const found=await client.query("SELECT id FROM assets WHERE id=$1 AND kind='pdf' AND upload_complete=1",[assetId])
+            if(found.rowCount!==1)throw new CatalogError('Yangi PDF serverda topilmadi yoki yuklanishi tugamagan.',400)
+          }
+          if(result.book.pdfKey!==result.previousPdfKey)oldAssetId=unusedPdfKey(result.previousPdfKey,result.books)
+        }else{
+          const qs=JSON.parse((await client.query("SELECT value FROM app_state WHERE key='questions'")).rows[0]?.value||'[]')
+          const tests=JSON.parse((await client.query("SELECT value FROM app_state WHERE key='testSets'")).rows[0]?.value||'[]')
+          result=removeBookCatalog(existing,qs,tests,bookId)
+          oldAssetId=unusedPdfKey(result.removedBook.pdfKey,result.books)
+        }
+        await client.query("UPDATE app_state SET value=$1 WHERE key='books'",[JSON.stringify(result.books)])
+        if(oldAssetId)await client.query("DELETE FROM assets WHERE id=$1 AND kind='pdf'",[oldAssetId])
+        await client.query('COMMIT')
+      }catch(e){
+        await client.query('ROLLBACK').catch(()=>{})
+        if(e instanceof CatalogError)return fail(res,e.status,e.message)
+        console.error('[BOOK CATALOG]',e?.message)
+        return fail(res,500,'Darslikni saqlashda server xatosi. Ma’lumotlar saqlanmadi.')
+      }finally{client.release()}
+      await audit(actor,method==='PATCH'?'book.edit':'book.delete',`bookId=${bookId}`)
+      return send(res,200,method==='PATCH'?{book:result.book,books:result.books,ok:true}:{books:result.books,deletedId:bookId,ok:true})
     }
     const stateMatch=/^\/api\/state\/(books|questions|testSets|assignments|adminSettings|quarterGates)$/.exec(path)
     if(stateMatch&&method==='PUT'){

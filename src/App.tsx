@@ -421,6 +421,13 @@ function App() {
   const [bookGrade, setBookGrade] = useState(5)
   const [catalogGrade, setCatalogGrade] = useState(5)
   const [bookAuthor, setBookAuthor] = useState('')
+  const [editingBookId, setEditingBookId] = useState<number | null>(null)
+  const [editBookTitle, setEditBookTitle] = useState('')
+  const [editBookAuthor, setEditBookAuthor] = useState('')
+  const [editBookPdf, setEditBookPdf] = useState<File | null>(null)
+  const [bookActionBusy, setBookActionBusy] = useState<number | null>(null)
+  const [bookActionProgress, setBookActionProgress] = useState('')
+  const skipNextCatalogSync = useRef(false)
   const [selectedChapter, setSelectedChapter] = useState(12)
   const [newChapter, setNewChapter] = useState('')
   const [startPage, setStartPage] = useState('')
@@ -569,7 +576,7 @@ function App() {
     const timer=window.setTimeout(()=>{void api(`/api/state/${key}`,'PUT',{value}).catch(err=>setNotice(`Serverga saqlash xatosi: ${err instanceof Error?err.message:'xatolik'}`))},450)
     return ()=>window.clearTimeout(timer)
   }
-  useEffect(()=>syncState('books',books,isManager||role==='teacher'),[books,hydrated,role])
+  useEffect(()=>{if(skipNextCatalogSync.current){skipNextCatalogSync.current=false;return}return syncState('books',books,isManager||role==='teacher')},[books,hydrated,role])
   useEffect(()=>syncState('questions',questions,isManager||role==='teacher'),[questions,hydrated,role])
   useEffect(()=>syncState('testSets',testSets,isManager||role==='teacher'),[testSets,hydrated,role])
   useEffect(()=>syncState('quarterGates',quarterGates,isManager),[quarterGates,hydrated,role])
@@ -815,18 +822,74 @@ function App() {
     setSelectedPdfFiles(files)
     setNotice(`${files.length} ta PDF tanlandi. «Darsliklarni saqlash» tugmasini bosing.`)
   }
-  async function attachPdf(bookId: number, file?: File) {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.pdf') || file.size > 40 * 1024 * 1024) {
-      setNotice('40 MB gacha bo‘lgan PDF tanlang.')
+  // v2.6: server-confirmed edit/delete; avoids losing updates on refresh.
+  function startEditingBook(book:Book) {
+    if(bookActionBusy!==null)return
+    setEditingBookId(book.id)
+    setEditBookTitle(book.title)
+    setEditBookAuthor(book.author==='Kiritilmagan'?'':book.author)
+    setEditBookPdf(null)
+    setBookActionProgress('')
+    setNotice('')
+  }
+  function closeEditingBook() {
+    if(bookActionBusy!==null)return
+    setEditingBookId(null)
+    setEditBookPdf(null)
+    setBookActionProgress('')
+  }
+  async function saveEditedBook(e:FormEvent,book:Book) {
+    e.preventDefault()
+    if(bookActionBusy!==null)return
+    const title=editBookTitle.trim()
+    if(title.length<2||title.length>160){setNotice('Darslik nomi 2–160 belgidan iborat bo‘lsin.');return}
+    if(editBookAuthor.trim().length>160){setNotice('Muallif yoki nashriyot nomi 160 belgidan oshmasin.');return}
+    if(editBookPdf&&(!/\.pdf$/i.test(editBookPdf.name)||!editBookPdf.size||editBookPdf.size>40*1024*1024)){
+      setNotice('PDF bo‘sh bo‘lmasligi va 40 MB dan oshmasligi kerak.');return
+    }
+    if(editBookPdf&&book.pdfKey&&!window.confirm(`«${book.title}» darsligining mavjud PDF fayli yangisiga almashtirilsinmi?`))return
+    setBookActionBusy(book.id)
+    setBookActionProgress('')
+    try{
+      const changes:{title:string;author:string;pdfKey?:string;pdfName?:string}={title,author:editBookAuthor.trim()}
+      if(editBookPdf){
+        const pdfFile=editBookPdf
+        changes.pdfKey=await savePdf(`book-${book.id}`,pdfFile,(done,total)=>setBookActionProgress(`PDF yuborilmoqda: ${done}/${total} bo‘lak`))
+        changes.pdfName=pdfFile.name
+      }
+      const response=await api<{books:Book[];book:Book}>(`/api/books/${book.id}`,'PATCH',changes)
+      skipNextCatalogSync.current=true
+      setBooks(response.books)
+      setEditingBookId(null)
+      setEditBookPdf(null)
+      setNotice(`«${response.book.title}» darsligi muvaffaqiyatli yangilandi.`)
+    }catch(err){setNotice(`Darslik tahrirlanmadi: ${err instanceof Error?err.message:'Noma’lum xato'}`)}
+    finally{setBookActionProgress('');setBookActionBusy(null)}
+  }
+  async function removeBook(book:Book) {
+    if(bookActionBusy!==null)return
+    const linkedQuestions=questions.filter(q=>q.bookId===book.id).length
+    const linkedTests=testSets.filter(t=>t.bookId===book.id).length
+    if(linkedQuestions||linkedTests){
+      setNotice(`«${book.title}» darsligida ${linkedQuestions} ta savol va ${linkedTests} ta test bor. Ma’lumotlar buzilmasligi uchun uni hozircha o‘chirib bo‘lmaydi.`)
       return
     }
-    const key = `book-${bookId}`
-    try {
-      const serverKey=await savePdf(key, file)
-      setBooks(old => old.map(b => b.id === bookId ? {...b, pdfKey:serverKey, pdfName:file.name} : b))
-      setNotice('PDF umumiy serverga saqlandi.')
-    } catch (err) { setNotice(`PDF saqlanmadi: ${err instanceof Error ? err.message : 'Noma’lum xato'}`) }
+    const chaptersInfo=book.chapters.length?` ${book.chapters.length} ta bob ham o‘chadi.`:''
+    if(!window.confirm(`«${book.title}» darsligini va unga tegishli PDFni butunlay o‘chirasizmi?${chaptersInfo} Bu amalni ortga qaytarib bo‘lmaydi. Zaxira nusxangiz borligini tekshiring.`))return
+    setBookActionBusy(book.id)
+    try{
+      const response=await api<{books:Book[];deletedId:number}>(`/api/books/${book.id}`,'DELETE')
+      skipNextCatalogSync.current=true
+      setBooks(response.books)
+      if(selectedBook===book.id){
+        const next=response.books.find(b=>b.grade===catalogGrade)||response.books[0]
+        setSelectedBook(next?.id??0)
+        setSelectedChapter(next?.chapters[0]?.id??0)
+      }
+      if(editingBookId===book.id)setEditingBookId(null)
+      setNotice(`«${book.title}» darsligi bazadan va ro‘yxatdan o‘chirildi.`)
+    }catch(err){setNotice(`Darslik o‘chirilmadi: ${err instanceof Error?err.message:'Noma’lum xato'}`)}
+    finally{setBookActionBusy(null)}
   }
   async function openPdf(book: Book, pageNumber?: number) {
     if (!book.pdfKey) { setNotice('Bu darslikka hali PDF biriktirilmagan.'); return }
@@ -1343,6 +1406,8 @@ function App() {
               const active = catalogGrade === grade
               return <button key={grade} type="button" aria-pressed={active} onClick={() => {
                 setCatalogGrade(grade)
+                setEditingBookId(null)
+                setEditBookPdf(null)
                 setBookGrade(grade)
                 const first = books.find(b => b.grade === grade)
                 setSelectedBook(first?.id ?? 0)
@@ -1359,16 +1424,34 @@ function App() {
         <div className="two-cols">
           <section className="panel">
             <div className="panel-head"><h2>{catalogGrade}-sinf darsliklari</h2><span className="tag">{gradeBooks.length} ta</span></div>
-            {gradeBooks.length > 0 ? <div className="book-list" aria-label={`${catalogGrade}-sinf uchun yuklangan darsliklar`}>{gradeBooks.map((b,index) => <div key={b.id} style={{border:'1px solid #dbe3ed',borderRadius:10,padding:12,marginBottom:10}}>
-              <div style={{fontWeight:700,color:'#163c65'}}>{index+1}. {b.title}</div>
-              <div style={{fontSize:12,color:'#687e98',margin:'6px 0 12px'}}>{b.author} · {b.chapters.length} bob · {b.pdfName || 'PDF biriktirilmagan'}</div>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                <button type="button" className="btn btn-outline" onClick={()=>{setSelectedBook(b.id);setSelectedChapter(b.chapters[0]?.id||0);setPage('chapters')}}>Boblarni ochish</button>
-                {b.pdfKey && <button type="button" className="btn btn-outline" onClick={()=>void openPdf(b)}>PDFni ochish</button>}
-                <label className="btn btn-outline" style={{cursor:'pointer'}}>{b.pdfKey?'PDFni almashtirish':'PDF biriktirish'}
-                  <input type="file" accept=".pdf,application/pdf" style={{display:'none'}} onChange={e=>{void attachPdf(b.id,e.target.files?.[0]); e.target.value=''}} />
-                </label>
+            {gradeBooks.length > 0 ? <div className="book-list" aria-label={`${catalogGrade}-sinf uchun yuklangan darsliklar`}>{gradeBooks.map((b,index) => <div key={b.id} className="md-book-item">
+              <div className="md-book-item-top">
+                <div className="md-book-item-info">
+                  <div className="md-book-item-title">{index+1}. {b.title}</div>
+                  <div className="md-book-item-detail">{b.author} · {b.chapters.length} bob · {b.pdfName || 'PDF biriktirilmagan'}</div>
+                </div>
+                {bookActionBusy===b.id&&<span className="tag">Saqlanmoqda...</span>}
               </div>
+              <div className="md-book-actions">
+                <button type="button" className="md-book-action" disabled={bookActionBusy!==null} title="Darslikning bob va mavzularini ochish" onClick={()=>{setSelectedBook(b.id);setSelectedChapter(b.chapters[0]?.id||0);setPage('chapters')}}>▤ <span>Boblar</span></button>
+                <button type="button" className="md-book-action" disabled={!b.pdfKey||bookActionBusy!==null} title="PDF faylni ochish" onClick={()=>void openPdf(b)}>↗ <span>PDF</span></button>
+                <button type="button" className={'md-book-action'+(editingBookId===b.id?' md-book-action-selected':'')} disabled={bookActionBusy!==null} aria-expanded={editingBookId===b.id} aria-label={`${b.title} darsligini tahrirlash`} onClick={()=>editingBookId===b.id?closeEditingBook():startEditingBook(b)}>✎ <span>Tahrir</span></button>
+                {isManager&&<button type="button" className="md-book-action md-book-action-danger" disabled={bookActionBusy!==null} aria-label={`${b.title} darsligini o‘chirish`} title="Butunlay o‘chirish" onClick={()=>void removeBook(b)}>🗑 <span>O‘chirish</span></button>}
+              </div>
+              {editingBookId===b.id&&<form className="md-book-edit" onSubmit={e=>void saveEditedBook(e,b)}>
+                <div className="md-book-edit-grid">
+                  <label>Darslik nomi<input value={editBookTitle} onChange={e=>setEditBookTitle(e.target.value)} maxLength={160} required disabled={bookActionBusy!==null} /></label>
+                  <label>Muallif / nashriyot<input value={editBookAuthor} onChange={e=>setEditBookAuthor(e.target.value)} maxLength={160} placeholder="Kiritilmagan" disabled={bookActionBusy!==null} /></label>
+                </div>
+                <label>PDFni almashtirish (ixtiyoriy, 40 MB gacha)
+                  <input key={`edit-pdf-${b.id}`} type="file" accept=".pdf,application/pdf" disabled={bookActionBusy!==null} onChange={e=>setEditBookPdf(e.target.files?.[0]||null)} />
+                </label>
+                {bookActionProgress&&<div className="hint" role="status">{bookActionProgress}</div>}
+                <div className="md-book-edit-footer">
+                  <button type="submit" className="btn btn-primary" disabled={bookActionBusy!==null||editBookTitle.trim().length<2}>{bookActionBusy===b.id?'Saqlanmoqda...':'✓ Saqlash'}</button>
+                  <button type="button" className="btn btn-outline" disabled={bookActionBusy!==null} onClick={closeEditingBook}>Bekor qilish</button>
+                </div>
+              </form>}
             </div>)}</div> : <div className="empty">{catalogGrade}-sinf uchun darslik hali qo‘shilmagan. O‘ng tomondagi shakldan yangi darslik qo‘shishingiz mumkin.</div>}
             <p className="hint">Darslik ma’lumotlari server bazasida, yangi PDFlar server fayl omborida saqlanadi. Eski brauzer fayllari uchun migratsiya mavjud.</p>
           </section>

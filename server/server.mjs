@@ -3,6 +3,7 @@
 // This HTTP pilot is ONLY for a trusted PRIVATE school LAN, not the public Internet.
 // HTTPS, external audit and production-grade security are still required for public use.
 import { createServer } from 'node:http'
+import { CatalogError, patchBookCatalog, removeBookCatalog, unusedPdfKey } from './book-catalog.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { randomBytes, scryptSync, createHash, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync, statSync, createReadStream, rmSync } from 'node:fs'
@@ -433,6 +434,41 @@ const server=createServer(async(req,res)=>{
       const id=Number(userMatch[1]);if(id===actor.id)return fail(res,403,'O‘zingizni o‘chira olmaysiz')
       run('UPDATE users SET active=0 WHERE id=? AND role<>\'admin\'',id);run('DELETE FROM sessions WHERE user_id=?',id)
       return send(res,200,{ok:true})
+    }
+    // v2.6: textbook catalog edit/delete for the legacy SQLite school server.
+    const bookAction=/^\/api\/books\/(\d+)$/.exec(path)
+    if(bookAction&&['PATCH','DELETE'].includes(method)){
+      if(!['admin','teacher'].includes(actor.role))return fail(res,403,'Ruxsat yo‘q')
+      if(method==='DELETE'&&actor.role!=='admin')return fail(res,403,'Darslikni faqat administrator o‘chirishi mumkin')
+      const bookId=Number(bookAction[1])
+      const changes=method==='PATCH'?await readJson(req):null
+      let result,oldAssetId=null
+      try{
+        db.exec('BEGIN IMMEDIATE')
+        const catalog=state('books')||[]
+        if(method==='PATCH'){
+          result=patchBookCatalog(catalog,bookId,changes)
+          if(result.book.pdfKey!==result.previousPdfKey&&result.book.pdfKey?.startsWith('server:')){
+            const assetId=result.book.pdfKey.slice(7)
+            if(!get("SELECT id FROM assets WHERE id=? AND kind='pdf'",assetId))throw new CatalogError('Yangi PDF serverda topilmadi.')
+          }
+          if(result.book.pdfKey!==result.previousPdfKey)oldAssetId=unusedPdfKey(result.previousPdfKey,result.books)
+        }else{
+          result=removeBookCatalog(catalog,state('questions')||[],state('testSets')||[],bookId)
+          oldAssetId=unusedPdfKey(result.removedBook.pdfKey,result.books)
+        }
+        store('books',result.books)
+        if(oldAssetId)run("DELETE FROM assets WHERE id=? AND kind='pdf'",oldAssetId)
+        db.exec('COMMIT')
+      }catch(e){
+        db.exec('ROLLBACK')
+        if(e instanceof CatalogError)return fail(res,e.status,e.message)
+        console.error('[BOOK CATALOG]',e?.message)
+        return fail(res,500,'Darslikni saqlashda server xatosi.')
+      }
+      if(oldAssetId)rmSync(resolve(assetDir,oldAssetId),{force:true})
+      audit(actor,method==='PATCH'?'book.edit':'book.delete',`bookId=${bookId}`)
+      return send(res,200,method==='PATCH'?{book:result.book,books:result.books,ok:true}:{books:result.books,deletedId:bookId,ok:true})
     }
     const stateMatch=/^\/api\/state\/(books|questions|testSets|assignments|adminSettings|quarterGates)$/.exec(path)
     if(stateMatch&&method==='PUT'){
