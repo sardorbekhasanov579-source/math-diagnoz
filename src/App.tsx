@@ -5,6 +5,7 @@ import PublicLanding from './PublicLanding'
 import PracticePanel from './PracticePanel'
 import V2Modules from './V2Modules'
 import ParentChildPicker from './ParentChildPicker'
+import AssessmentReport from './AssessmentReport'
 import './App.css'
 
 type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice' | 'admins' | 'ai' | 'international' | 'teacher-tools' | 'student-assistant' | 'help'
@@ -88,6 +89,47 @@ function pdfDb(): Promise<IDBDatabase> {
     request.onerror = () => reject(request.error)
   })
 }
+async function checkedResponse(res: Response, fallback: string): Promise<any> {
+ const text = await res.text().catch(() => '')
+ let payload: any = {}
+ try { payload = JSON.parse(text) } catch { /* Proxy may return HTML instead of JSON */ }
+ if (!res.ok) throw new Error(payload.error || `${fallback} (HTTP ${res.status}). Internet, server va fayl hajmini tekshiring.`)
+ return payload
+}
+// Store big PDFs in small independently retried pieces; existing server: keys remain valid.
+async function uploadPdfChunked(file: File, onProgress?: (loaded: number, total: number) => void): Promise<string> {
+ const size=2*1024*1024, parts=Math.ceil(file.size/size)
+ let id=''
+ try {
+  const start=await fetch('/api/assets/pdf/start',{
+   method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({name:file.name,bytes:file.size,parts})
+  })
+  const session=await checkedResponse(start,'PDF yuklashni boshlashda xato')
+  id=session.id
+  if(!/^[a-f0-9]{36}$/.test(id)||session.partSize!==size)throw new Error('Server PDF yuklash protokolini qo‘llab-quvvatlamayapti')
+  for(let index=0;index<parts;index++) {
+   const chunk=file.slice(index*size,Math.min(file.size,(index+1)*size))
+   let error: Error | null=null
+   for(let attempt=0;attempt<3;attempt++) {
+    try {
+     const res=await fetch(`/api/assets/pdf/${id}/parts/${index}`,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:chunk})
+     await checkedResponse(res,`PDFning ${index+1}-bo‘lagini yuklashda xato`)
+     error=null;break
+    } catch (e) {error=e instanceof Error?e:new Error('Tarmoq xatosi');if(attempt<2)await new Promise(resolve=>setTimeout(resolve,400*(attempt+1)))}
+   }
+   if(error)throw error
+   onProgress?.(index+1,parts)
+  }
+  const done=await fetch(`/api/assets/pdf/${id}/complete`,{method:'POST',credentials:'same-origin'})
+  const result=await checkedResponse(done,'PDF saqlanishini tasdiqlashda xato')
+  if(typeof result.key!=='string'||!result.key.startsWith('server:'))throw new Error('Server PDF kalitini qaytarmadi')
+  return result.key
+ } catch (e) {
+  if(id)void fetch(`/api/assets/pdf/${id}`,{method:'DELETE',credentials:'same-origin'}).catch(()=>{})
+  throw e
+ }
+}
 async function uploadAsset(kind:'pdf'|'image',data:Blob,name:string):Promise<string>{
  const res=await fetch(`/api/assets/${kind}?name=${encodeURIComponent(name)}`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':data.type || 'application/octet-stream'},body:data})
  const payload=await res.json().catch(()=>({error:'Server fayl javobini o‘qib bo‘lmadi'}))
@@ -100,9 +142,9 @@ async function serverAsset(key:string):Promise<Blob|undefined>{
  if(!res.ok)throw new Error('Serverdagi faylni o‘qib bo‘lmadi')
  return res.blob()
 }
-async function savePdf(key: string, file: File): Promise<string> {
+async function savePdf(key: string, file: File, onProgress?: (done: number, total: number) => void): Promise<string> {
   if (key.startsWith('server:')) return key
-  return uploadAsset('pdf',file,file.name)
+  return uploadPdfChunked(file,onProgress)
 }
 async function loadPdf(key: string): Promise<Blob | undefined> {
   if(key.startsWith('server:'))return serverAsset(key)
@@ -674,8 +716,16 @@ function App() {
   function editUser(u:DemoUser){setEditingUserId(u.id);setUserResetPassword('');setNewUserName(u.name);setNewUserUsername(u.username||'');setNewUserRole(u.role);setNewUserClassId(u.classId||classes[0]?.id||0);setNewParentChildIds(u.childIds||[]);setNewTeacherClassIds(classes.filter(c=>c.teacherId===u.id).map(c=>c.id))}
   async function deleteUser(u:DemoUser){
     if(u.role==='admin'||(u.role==='assistant_admin'&&role!=='admin')||u.id===currentUser.id){setNotice('Administratorni yoki o‘zingizni o‘chira olmaysiz.');return}
-    if(!window.confirm(`${u.name} hisobini faolsizlantirasizmi?`))return
-    try{await api(`/api/users/${u.id}`,'DELETE');setUsers(old=>old.map(x=>x.id===u.id?{...x,active:false}:x));setNotice('Profil faolsizlantirildi.')}
+    if(!window.confirm(`${u.name} (${ROLE_NAMES[u.role]}) hisobini BUTUNLAY o‘chirasizmi?\n\nUning shaxsiy test natijalari va murojaatlari ham o‘chiriladi. Bu amalni qaytarib bo‘lmaydi. Umumiy darsliklar saqlanadi.`))return
+    try{
+      await api(`/api/users/${u.id}`,'DELETE')
+      setUsers(old=>old.filter(x=>x.id!==u.id).map(x=>x.role==='parent'?{...x,childIds:(x.childIds||[]).filter(id=>id!==u.id)}:x))
+      setTestAttempts(old=>old.filter(x=>x.studentId!==u.id))
+      setClasses(old=>old.map(c=>c.teacherId===u.id?{...c,teacherId:null}:c))
+      setNewParentChildIds(old=>old.filter(id=>id!==u.id))
+      if(editingUserId===u.id)setEditingUserId(null)
+      setNotice('Foydalanuvchi bazadan butunlay o‘chirildi.')
+    }
     catch(err){setNotice(err instanceof Error?err.message:'Xatolik')}
   }
   function assignTest(e:FormEvent){
@@ -702,6 +752,7 @@ function App() {
     const firstId = Math.max(Date.now(), 1, ...books.map(b => b.id + 1))
     const added: Book[] = []
     const failed: File[] = []
+    const failedMessages: string[] = []
     setUploading(true)
     try {
       if (!files.length) {
@@ -711,15 +762,16 @@ function App() {
           setBookUploadProgress(`${index+1}/${files.length} · ${file.name}`)
           try {
             const id = firstId + index
-            const pdfKey = await savePdf(`book-${id}`,file)
+            const pdfKey = await savePdf(`book-${id}`,file,(done,total)=>setBookUploadProgress(`${index+1}/${files.length} · ${file.name} · bo‘lak ${done}/${total}`))
             const filenameTitle = file.name.replace(/\.pdf$/i,'').replace(/[_]+/g,' ').trim()
             added.push({
               id, grade:bookGrade,
               title:files.length===1&&bookTitle.trim()?bookTitle.trim():(filenameTitle||`Darslik ${index+1}`),
               author:bookAuthor.trim()||'Kiritilmagan', chapters:[], pdfKey, pdfName:file.name
             })
-          } catch {
+          } catch (err) {
             failed.push(file)
+            failedMessages.push(`${file.name}: ${err instanceof Error?err.message:'Noma’lum xato'}`)
           }
         }
       }
@@ -734,7 +786,7 @@ function App() {
       setSelectedPdfFiles(failed)
       setBookFileEpoch(n=>n+1)
       if (failed.length) {
-        setNotice(`${added.length} ta darslik qo‘shildi; ${failed.length} ta PDF yuklanmadi. Qayta urinish uchun fayllar tanlangan holatda qoldi.`)
+        setNotice(`${added.length} ta darslik qo‘shildi; ${failed.length} ta PDF yuklanmadi. Sabab: ${failedMessages.slice(0,2).join(' | ')}${failedMessages.length>2?' va boshqa xatolar':''}`)
       } else {
         setNotice(`${added.length} ta darslik ${bookGrade}-sinf ro‘yxatiga qo‘shildi. Oldingi darsliklar saqlandi.`)
       }
@@ -774,7 +826,7 @@ function App() {
       const serverKey=await savePdf(key, file)
       setBooks(old => old.map(b => b.id === bookId ? {...b, pdfKey:serverKey, pdfName:file.name} : b))
       setNotice('PDF umumiy serverga saqlandi.')
-    } catch { setNotice('PDF saqlanmadi. Xotirani tekshiring.') }
+    } catch (err) { setNotice(`PDF saqlanmadi: ${err instanceof Error ? err.message : 'Noma’lum xato'}`) }
   }
   async function openPdf(book: Book, pageNumber?: number) {
     if (!book.pdfKey) { setNotice('Bu darslikka hali PDF biriktirilmagan.'); return }
@@ -1665,7 +1717,7 @@ function App() {
           </div>
           <label className="md21-search">🔎 Qidirish<input type="search" value={userSearch} onChange={e=>setUserSearch(e.target.value)} placeholder="Ism, login, sinf yoki rol"/></label>
           <p className="hint">Ko‘rsatilmoqda: {filteredUsers.length} ta · Ro‘yxatni rol bo‘yicha ajratish ma’lumotlarni o‘chirmaydi.</p>
-          <div className="md-v08-scroll">{filteredUsers.length===0&&<div className="empty">Tanlangan rol yoki qidiruv bo‘yicha foydalanuvchi topilmadi.</div>}{filteredUsers.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {u.verified===false&&<span className="md17-pending-tag">Tasdiq kutilmoqda</span>} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row">{['student','parent'].includes(u.role)&&<button className="btn btn-outline" onClick={()=>void toggleVerified(u)}>{u.verified===false?'✓ Tasdiqlash':'Tasdiqni bekor qilish'}</button>}<button className="btn btn-outline" disabled={u.role==='admin'&&u.id!==currentUser.id||u.role==='assistant_admin'&&role!=='admin'} onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id||!u.active} onClick={()=>void deleteUser(u)}>O‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
+          <div className="md-v08-scroll">{filteredUsers.length===0&&<div className="empty">Tanlangan rol yoki qidiruv bo‘yicha foydalanuvchi topilmadi.</div>}{filteredUsers.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {u.verified===false&&<span className="md17-pending-tag">Tasdiq kutilmoqda</span>} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row">{['student','parent'].includes(u.role)&&<button className="btn btn-outline" onClick={()=>void toggleVerified(u)}>{u.verified===false?'✓ Tasdiqlash':'Tasdiqni bekor qilish'}</button>}<button className="btn btn-outline" disabled={u.role==='admin'&&u.id!==currentUser.id||u.role==='assistant_admin'&&role!=='admin'} onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void deleteUser(u)}>Butunlay o‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
         <section className="panel"><h2>{editingUserId===null?'Yangi foydalanuvchi':'Profilni tahrirlash'}</h2><form className="form" onSubmit={addOrEditUser}><label>Ism / profil nomi<input value={newUserName} required onChange={e=>setNewUserName(e.target.value)}/></label>{editingUserId===null&&<><label>Yangi login<input value={newUserUsername} required minLength={3} maxLength={32} placeholder="Masalan: ustoz2026" onChange={e=>setNewUserUsername(e.target.value)}/></label><label>Vaqtinchalik parol<input type="password" value={newUserPassword} minLength={8} required placeholder="Kamida 8 belgi" onChange={e=>setNewUserPassword(e.target.value)}/></label></>}<label>Rol<select value={newUserRole} onChange={e=>setNewUserRole(e.target.value as DemoRole)}>{role==='admin'&&<option value="assistant_admin">Yordamchi admin</option>}<option value="teacher">O‘qituvchi</option><option value="student">O‘quvchi</option><option value="parent">Ota-ona</option></select></label>{newUserRole==='student'&&<label>Sinf<select value={newUserClassId} onChange={e=>setNewUserClassId(Number(e.target.value))}>{classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}{newUserRole==='teacher'&&<div><strong>O‘qituvchiga biriktiriladigan sinflar</strong>{classes.map(c=><label key={c.id} className="md-v08-check"><input type="checkbox" checked={newTeacherClassIds.includes(c.id)} onChange={e=>setNewTeacherClassIds(old=>e.target.checked?[...old,c.id]:old.filter(id=>id!==c.id))}/>{c.name}</label>)}</div>}{newUserRole==='parent'&&<ParentChildPicker key={editingUserId??'new'} schools={schools} classes={classes} users={users} value={newParentChildIds} onChange={setNewParentChildIds}/> }{editingUserId!==null&&<label>Yangi parol (ixtiyoriy, kamida 8 belgi)<input type="password" minLength={8} value={userResetPassword} onChange={e=>setUserResetPassword(e.target.value)} placeholder="Parolni o‘zgartirmaslik uchun bo‘sh qoldiring"/></label>}<div className="md-button-row"><button className="btn btn-primary">Saqlash</button>{editingUserId!==null&&<button type="button" className="btn btn-outline" onClick={()=>{setEditingUserId(null);setNewUserName('')}}>Bekor qilish</button>}</div></form><p className="hint">Yangi foydalanuvchi login va parol bilan kiradi. Parollar Neon PostgreSQL bazasida xesh shaklida saqlanadi. Ota-ona va farzand aloqasini administrator belgilaydi.</p></section>
       </div>}
       {page === 'assignments' && (isManager||role==='teacher') && <div className="two-cols">
@@ -1694,6 +1746,7 @@ function App() {
           </div>})}
         </>}
       </section>}
+       {page === 'reports' && ['admin','assistant_admin','teacher'].includes(role) && <AssessmentReport/>}
        {page === 'reports' && <section className="panel"><div className="panel-head"><h2>Test natijalari</h2><span className="tag">{visibleAttempts.length} ta urinish</span></div><button className="btn btn-outline" type="button" onClick={exportAttemptsCsv} disabled={visibleAttempts.length===0}>↓ Natijalarni CSV (Excel) yuklab olish</button>
          <p className="hint">Natijalar mahalliy SQLite bazasida saqlanadi. Pilotdagi shaxsiy ma’lumotlarni internetga chiqarish taqiqlanadi.</p>
          {visibleAttempts.length===0?<div className="empty">Sinov natijalari hali yo‘q. «O‘quvchilar» sahifasida faol testni bajarib ko‘ring.</div>:<>

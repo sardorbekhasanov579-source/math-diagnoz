@@ -4,7 +4,7 @@
 // HTTPS, external audit and production-grade security are still required for public use.
 import { createServer } from 'node:http'
 import { initV2Schema, handleV2 } from './v2-module.mjs'
-import { get, all, run, initSchema, ensureSchool, backupTables, filePut, fileGet } from './postgres-db.mjs'
+import { get, all, run, initSchema, ensureSchool, backupTables, filePut, fileGet, getClient } from './postgres-db.mjs'
 import { createGzip } from 'node:zlib'
 import { randomBytes, scryptSync, createHash, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync, statSync, createReadStream, rmSync } from 'node:fs'
@@ -240,6 +240,54 @@ const server=createServer(async(req,res)=>{
     if(path==='/api/auth/me'&&method==='GET')return send(res,200,{user:safeUser(actor)})
     if(!actor)return fail(res,401,'Avval tizimga kiring')
     if(await handleV2({path,method,url,req,res,actor}))return
+    // v2.5: Chunked PDF uploads avoid timeouts and opaque failures for textbooks.
+    // Each chunk is persisted in Neon; Render's ephemeral filesystem is never used.
+    if(path==='/api/assets/pdf/start'&&method==='POST'){
+      if(!isOperator(actor)&&actor.role!=='teacher')return fail(res,403,'Darslik yuklashga ruxsat yo‘q')
+      const d=await readJson(req),size=Number(d.bytes),name=clean(d.name||'darslik.pdf').slice(0,150)
+      const partSize=2*1024*1024
+      if(!name.toLowerCase().endsWith('.pdf'))return fail(res,400,'Faqat PDF darslikni yuklang')
+      if(!Number.isSafeInteger(size)||size<5||size>40*1024*1024)return fail(res,413,'Har bir PDF 40 MB dan oshmasligi va bo‘sh bo‘lmasligi kerak')
+      const count=Math.ceil(size/partSize)
+      if(d.parts!==count)return fail(res,400,'PDF bo‘laklari soni noto‘g‘ri')
+      // Reclaim uploads interrupted over a day ago. Completed books are NEVER deleted.
+      await run('DELETE FROM assets WHERE upload_complete=0 AND created_at<?',Date.now()-24*3600*1000)
+      const total=Number((await get('SELECT COALESCE(SUM(bytes),0) AS total FROM assets')).total||0)
+      if(total+size>200*1024*1024)return fail(res,413,`PDF omborida joy yetarli emas. ${Math.round(total/1048576)} MB / 200 MB band. Eski darsliklarni zaxiralab, ombor limitini oshirish kerak.`)
+      const id=randomBytes(18).toString('hex')
+      await run('INSERT INTO assets(id,kind,filename,mime,bytes,uploaded_by,created_at,upload_complete) VALUES(?,?,?,?,?,?,?,0)',id,'pdf',name,'application/pdf',size,actor.id,Date.now())
+      return send(res,201,{id,partSize,parts:count})
+    }
+    const partMatch=/^\/api\/assets\/pdf\/([a-f0-9]{36})\/parts\/(\d+)$/.exec(path)
+    if(partMatch&&method==='PUT'){
+      if(!isOperator(actor)&&actor.role!=='teacher')return fail(res,403,'Ruxsat yo‘q')
+      const id=partMatch[1],partIndex=Number(partMatch[2])
+      const row=await get("SELECT bytes,uploaded_by,upload_complete FROM assets WHERE id=? AND kind='pdf'",id)
+      if(!row||Number(row.uploaded_by)!==actor.id||row.upload_complete!==0)return fail(res,404,'Yuklash sessiyasi topilmadi yoki yakunlangan')
+      const count=Math.ceil(row.bytes/(2*1024*1024))
+      if(!Number.isInteger(partIndex)||partIndex<0||partIndex>=count)return fail(res,400,'PDF bo‘lagi raqami noto‘g‘ri')
+      const needed=Math.min(2*1024*1024,row.bytes-partIndex*2*1024*1024)
+      const bytes=await readBinary(req,2*1024*1024)
+      if(bytes.length!==needed)return fail(res,400,'PDF bo‘lagi hajmi noto‘g‘ri')
+      if(partIndex===0&&assetType(bytes,'pdf')!=='application/pdf')return fail(res,400,'Fayl haqiqiy PDF emas yoki PDF sarlavhasi yo‘q')
+      await run('INSERT INTO asset_parts(id,part_index,content) VALUES(?,?,?) ON CONFLICT(id,part_index) DO UPDATE SET content=excluded.content',id,partIndex,bytes)
+      return send(res,200,{ok:true,part:partIndex+1,total:count})
+    }
+    const completeMatch=/^\/api\/assets\/pdf\/([a-f0-9]{36})\/complete$/.exec(path)
+    if(completeMatch&&method==='POST'){
+      const id=completeMatch[1],row=await get("SELECT * FROM assets WHERE id=? AND kind='pdf'",id)
+      if(!row||row.uploaded_by!==actor.id||row.upload_complete!==0)return fail(res,404,'Yuklash sessiyasi topilmadi yoki yakunlangan')
+      const chunks=await get('SELECT COUNT(*) AS count, COALESCE(SUM(OCTET_LENGTH(content)),0) AS bytes FROM asset_parts WHERE id=?',id)
+      if(Number(chunks.count)!==Math.ceil(row.bytes/(2*1024*1024))||Number(chunks.bytes)!==row.bytes)return fail(res,409,'PDF to‘liq kelmadi. Qolgan bo‘laklarni qayta yuklang.')
+      await run('UPDATE assets SET upload_complete=1 WHERE id=?',id)
+      await audit(actor,'asset.upload','pdf · '+row.filename)
+      return send(res,201,{key:'server:'+id,name:row.filename,bytes:row.bytes})
+    }
+    const cancelMatch=/^\/api\/assets\/pdf\/([a-f0-9]{36})$/.exec(path)
+    if(cancelMatch&&method==='DELETE'){
+      await run('DELETE FROM assets WHERE id=? AND uploaded_by=? AND upload_complete=0',cancelMatch[1],actor.id)
+      return send(res,200,{ok:true})
+    }
     // PDF and image bytes persist as PostgreSQL bytea (pilot quota 200 MB).
     if(path==='/api/assets/pdf'&&method==='POST'||path==='/api/assets/image'&&method==='POST'){
       if(!isOperator(actor)&&actor.role!=='teacher')return fail(res,403,'Yuklashga ruxsat yo‘q')
@@ -249,7 +297,7 @@ const server=createServer(async(req,res)=>{
       const bytes=await readBinary(req,max)
       const mime=assetType(bytes,kind)
       if(!mime)return fail(res,400,'Fayl formati mos emas (PDF, PNG, JPG, GIF yoki WEBP)')
-      const total=(await get('SELECT COALESCE(SUM(bytes),0) AS total FROM assets')).total
+      const total=Number((await get('SELECT COALESCE(SUM(bytes),0) AS total FROM assets')).total||0)
       if(total+bytes.length>200*1024*1024)return fail(res,413,'Neon sinov fayllari uchun 200 MB ajratilgan limit tugadi')
       const id=randomBytes(18).toString('hex')
       await run('INSERT INTO assets(id,kind,filename,mime,bytes,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?)',id,kind,name,mime,bytes.length,actor.id,Date.now())
@@ -259,7 +307,7 @@ const server=createServer(async(req,res)=>{
     }
     const assetPath=/^\/api\/assets\/([a-f0-9]{36})$/.exec(path)
     if(assetPath&&method==='GET'){
-      const item=await get('SELECT * FROM assets WHERE id=?',assetPath[1]);if(!item)return fail(res,404,'Fayl topilmadi')
+      const item=await get('SELECT * FROM assets WHERE id=? AND upload_complete=1',assetPath[1]);if(!item)return fail(res,404,'Fayl topilmadi')
       const file=await fileGet(item.id);if(!file)return fail(res,404,'Fayl saqlash joyida topilmadi')
       res.writeHead(200,{'Content-Type':item.mime,'Content-Length':item.bytes,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':'inline; filename="'+(item.kind==='pdf'?'document.pdf':'image')+'"'})
       return res.end(file)
@@ -289,15 +337,15 @@ const server=createServer(async(req,res)=>{
       const gz=createGzip({level:6});gz.pipe(res)
       try{
         gz.write(JSON.stringify({format:'math-diagnoz-2.0-export',createdAt:new Date().toISOString()}).slice(0,-1)+',"tables":{')
-        const tables=['users','sessions','schools','classes','app_state','exams','results','assets','audit','practice_attempts','asset_blobs','v2_support_tickets','v2_assessment_results','v2_assessment_questions']
+        const tables=['users','sessions','schools','classes','app_state','exams','results','assets','audit','practice_attempts','asset_blobs','asset_parts','v2_support_tickets','v2_assessment_results','v2_assessment_questions']
         for(let i=0;i<tables.length;i++){
           const table=tables[i];const records=await backupTables(table)
           if(i)gz.write(',')
-          if(table==='asset_blobs'){
-            gz.write('"asset_blobs":[')
+          if(table==='asset_blobs'||table==='asset_parts'){
+            gz.write(JSON.stringify(table)+':[')
             for(let j=0;j<records.length;j++){
               if(j)gz.write(',')
-              gz.write(JSON.stringify({id:records[j].id,contentBase64:records[j].content.toString('base64')}))
+              gz.write(JSON.stringify({id:records[j].id,...(table==='asset_parts'?{part_index:records[j].part_index}:{}),contentBase64:records[j].content.toString('base64')}))
             }
             gz.write(']')
           }else gz.write(JSON.stringify(table)+':'+JSON.stringify(records))
@@ -425,10 +473,39 @@ const server=createServer(async(req,res)=>{
     if(userMatch&&method==='DELETE'){
       if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const id=Number(userMatch[1]);if(id===actor.id)return fail(res,403,'O‘zingizni o‘chira olmaysiz')
-      const victim=await get('SELECT role FROM users WHERE id=?',id)
-      if(victim?.role==='admin'||victim?.role==='assistant_admin'&&!isSuper(actor))return fail(res,403,'Admin hisobini boshqarishga ruxsat yo‘q')
-      await run('UPDATE users SET active=0 WHERE id=? AND role<>\'admin\'',id);await run('DELETE FROM sessions WHERE user_id=?',id)
-      return send(res,200,{ok:true})
+      const victim=await get('SELECT id,role FROM users WHERE id=?',id)
+      if(!victim)return fail(res,404,'Foydalanuvchi topilmadi')
+      if(victim.role==='admin')return fail(res,403,'Super-admin hisobini o‘chirish mumkin emas')
+      if(victim.role==='assistant_admin'&&!isSuper(actor))return fail(res,403,'Yordamchi administratorni faqat super-admin o‘chira oladi')
+      // Permanent deletion with dependent private records, preserving shared books and question banks.
+      // A single transaction makes sure partial cleanup cannot leave an inconsistent account.
+      const client=await getClient()
+      try {
+        await client.query('BEGIN')
+        const parents=await client.query("SELECT id,child_ids FROM users WHERE role='parent' AND id<>$1",[id])
+        for(const p of parents.rows){
+          let ids=[]
+          try{ids=JSON.parse(p.child_ids||'[]')}catch{ids=[]}
+          if(!Array.isArray(ids))ids=[]
+          if(ids.some(child=>Number(child)===id)){
+            await client.query('UPDATE users SET child_ids=$1 WHERE id=$2',[JSON.stringify(ids.filter(child=>Number(child)!==id)),p.id])
+          }
+        }
+        await client.query('UPDATE classes SET teacher_id=NULL WHERE teacher_id=$1',[id])
+        // Shared files and question banks remain available to other learners.
+        await client.query('UPDATE assets SET uploaded_by=0 WHERE uploaded_by=$1',[id])
+        await client.query('UPDATE v2_assessment_questions SET created_by=0 WHERE created_by=$1',[id])
+        await client.query('UPDATE audit SET actor_id=NULL WHERE actor_id=$1',[id])
+        for(const table of ['sessions','results','exams','practice_attempts','v2_assessment_results','v2_support_tickets']){
+          const column=table==='v2_support_tickets'?'author_id':'user_id'
+          await client.query(`DELETE FROM ${table} WHERE ${column}=$1`,[id])
+        }
+        const removed=await client.query('DELETE FROM users WHERE id=$1',[id])
+        if(removed.rowCount!==1)throw new Error('Foydalanuvchi o‘chirilmadi')
+        await client.query('COMMIT')
+      }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+      await audit(actor,'user.permanent_delete',`id=${id}; role=${victim.role}`)
+      return send(res,200,{ok:true,deleted:true,id})
     }
     const stateMatch=/^\/api\/state\/(books|questions|testSets|assignments|adminSettings|quarterGates)$/.exec(path)
     if(stateMatch&&method==='PUT'){
