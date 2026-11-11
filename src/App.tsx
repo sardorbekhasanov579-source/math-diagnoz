@@ -391,7 +391,9 @@ function App() {
   const [options, setOptions] = useState(['', '', '', ''])
   const [correct, setCorrect] = useState(0)
   const [notice, setNotice] = useState('')
-  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null)
+  const [selectedPdfFiles, setSelectedPdfFiles] = useState<File[]>([])
+  const [bookFileEpoch, setBookFileEpoch] = useState(0)
+  const [bookUploadProgress, setBookUploadProgress] = useState('')
   const [uploading, setUploading] = useState(false)
   const [wordBusy, setWordBusy] = useState(false)
   const [wordPreview, setWordPreview] = useState<WordParseResult | null>(null)
@@ -689,40 +691,77 @@ function App() {
 
   async function addBook(e: FormEvent) {
     e.preventDefault()
-    if (!bookTitle.trim() || uploading) return
-    const id = Date.now()
-    let pdfKey: string | undefined
+    if (uploading) return
+    const files = [...selectedPdfFiles]
+    if (!files.length && !bookTitle.trim()) {
+      setNotice('Darslik nomini yozing yoki PDF fayllarni tanlang.')
+      return
+    }
+    // Har bir PDF — mustaqil darslik. Shunday qilib bob, test va fayl bog‘lanishlari
+    // bir-biridan ajralgan holda saqlanadi; avvalgi darsliklar o‘zgarmaydi.
+    const firstId = Math.max(Date.now(), 1, ...books.map(b => b.id + 1))
+    const added: Book[] = []
+    const failed: File[] = []
     setUploading(true)
     try {
-      if (selectedPdfFile) pdfKey = await savePdf(`book-${id}`, selectedPdfFile)
-      const book: Book = { id, title: bookTitle.trim(), grade: bookGrade,
-        author: bookAuthor.trim() || 'Kiritilmagan', chapters: [],
-        pdfKey, pdfName: selectedPdfFile?.name }
-      setBooks(old => [...old, book])
-      setSelectedBook(id)
-      setSelectedChapter(0)
-      setCatalogGrade(bookGrade)
-      setBookTitle('')
-      setBookAuthor('')
-      setSelectedPdfFile(null)
-      setNotice(pdfKey ? 'Darslik PDF fayli bilan serverga saqlandi.' : 'Darslik katalogga saqlandi. PDFni keyin biriktirish mumkin.')
-    } catch {
-      setNotice('PDF serverga saqlanmadi. Server oynasi va fayl hajmini tekshiring.')
-    } finally { setUploading(false) }
+      if (!files.length) {
+        added.push({id:firstId,title:bookTitle.trim(),grade:bookGrade,author:bookAuthor.trim()||'Kiritilmagan',chapters:[]})
+      } else {
+        for (const [index,file] of files.entries()) {
+          setBookUploadProgress(`${index+1}/${files.length} · ${file.name}`)
+          try {
+            const id = firstId + index
+            const pdfKey = await savePdf(`book-${id}`,file)
+            const filenameTitle = file.name.replace(/\.pdf$/i,'').replace(/[_]+/g,' ').trim()
+            added.push({
+              id, grade:bookGrade,
+              title:files.length===1&&bookTitle.trim()?bookTitle.trim():(filenameTitle||`Darslik ${index+1}`),
+              author:bookAuthor.trim()||'Kiritilmagan', chapters:[], pdfKey, pdfName:file.name
+            })
+          } catch {
+            failed.push(file)
+          }
+        }
+      }
+      if (added.length) {
+        setBooks(old => [...old, ...added])
+        setSelectedBook(added[0].id)
+        setSelectedChapter(0)
+        setCatalogGrade(bookGrade)
+        setBookTitle('')
+        setBookAuthor('')
+      }
+      setSelectedPdfFiles(failed)
+      setBookFileEpoch(n=>n+1)
+      if (failed.length) {
+        setNotice(`${added.length} ta darslik qo‘shildi; ${failed.length} ta PDF yuklanmadi. Qayta urinish uchun fayllar tanlangan holatda qoldi.`)
+      } else {
+        setNotice(`${added.length} ta darslik ${bookGrade}-sinf ro‘yxatiga qo‘shildi. Oldingi darsliklar saqlandi.`)
+      }
+    } finally {
+      setBookUploadProgress('')
+      setUploading(false)
+    }
   }
-  function selectPdf(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] || null
-    if (file && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      setNotice('Faqat PDF faylni tanlang.')
-      e.target.value = ''
+  function selectPdfs(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) { setSelectedPdfFiles([]); return }
+    const invalid = files.find(file => (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') || file.size>40*1024*1024 || file.size===0)
+    if (invalid) {
+      setNotice(`Noto‘g‘ri PDF: ${invalid.name}. Har bir PDF 40 MB gacha va bo‘sh bo‘lmasligi kerak.`)
+      setSelectedPdfFiles([])
+      e.target.value=''
       return
     }
-    if (file && file.size > 40 * 1024 * 1024) {
-      setNotice('Sinov versiyasida PDF hajmi 40 MB dan oshmasin.')
-      e.target.value = ''
+    const totalSize = files.reduce((sum,file)=>sum+file.size,0)
+    if (totalSize>200*1024*1024) {
+      setNotice('Bir martalik tanlov 200 MB dan oshmasin. Fayllarni kichikroq guruhlarga bo‘lib yuklang.')
+      setSelectedPdfFiles([])
+      e.target.value=''
       return
     }
-    setSelectedPdfFile(file)
+    setSelectedPdfFiles(files)
+    setNotice(`${files.length} ta PDF tanlandi. «Darsliklarni saqlash» tugmasini bosing.`)
   }
   async function attachPdf(bookId: number, file?: File) {
     if (!file) return
@@ -1268,8 +1307,8 @@ function App() {
         <div className="two-cols">
           <section className="panel">
             <div className="panel-head"><h2>{catalogGrade}-sinf darsliklari</h2><span className="tag">{gradeBooks.length} ta</span></div>
-            {gradeBooks.length > 0 ? <div className="book-list">{gradeBooks.map(b => <div key={b.id} style={{border:'1px solid #dbe3ed',borderRadius:10,padding:12,marginBottom:10}}>
-              <div style={{fontWeight:700,color:'#163c65'}}>{b.title}</div>
+            {gradeBooks.length > 0 ? <div className="book-list" aria-label={`${catalogGrade}-sinf uchun yuklangan darsliklar`}>{gradeBooks.map((b,index) => <div key={b.id} style={{border:'1px solid #dbe3ed',borderRadius:10,padding:12,marginBottom:10}}>
+              <div style={{fontWeight:700,color:'#163c65'}}>{index+1}. {b.title}</div>
               <div style={{fontSize:12,color:'#687e98',margin:'6px 0 12px'}}>{b.author} · {b.chapters.length} bob · {b.pdfName || 'PDF biriktirilmagan'}</div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                 <button type="button" className="btn btn-outline" onClick={()=>{setSelectedBook(b.id);setSelectedChapter(b.chapters[0]?.id||0);setPage('chapters')}}>Boblarni ochish</button>
@@ -1281,13 +1320,24 @@ function App() {
             </div>)}</div> : <div className="empty">{catalogGrade}-sinf uchun darslik hali qo‘shilmagan. O‘ng tomondagi shakldan yangi darslik qo‘shishingiz mumkin.</div>}
             <p className="hint">Darslik ma’lumotlari server bazasida, yangi PDFlar server fayl omborida saqlanadi. Eski brauzer fayllari uchun migratsiya mavjud.</p>
           </section>
-          <section className="panel"><div className="panel-head"><h2>Yangi darslik</h2><span className="tag">{bookGrade}-sinf</span></div>
+          <section className="panel"><div className="panel-head"><h2>Darsliklarni yuklash</h2><span className="tag">{bookGrade}-sinf</span></div>
             <form onSubmit={addBook} className="form">
-              <label>Darslik nomi<input value={bookTitle} onChange={e=>setBookTitle(e.target.value)} required placeholder="Masalan: Matematika"/></label>
-              <label>Sinf<select value={bookGrade} onChange={e=>setBookGrade(Number(e.target.value))}>{grades.map(n=><option key={n} value={n}>{n}-sinf</option>)}</select></label>
-              <label>Muallif<input value={bookAuthor} onChange={e=>setBookAuthor(e.target.value)} placeholder="Muallif yoki nashriyot"/></label><label>PDF darslik (ixtiyoriy, 40 MB gacha)<input type="file" accept=".pdf,application/pdf" onChange={selectPdf}/></label>
-              {selectedPdfFile && <small style={{color:'#52708d'}}>Tanlangan: {selectedPdfFile.name}</small>}
-              <button className="btn btn-primary" type="submit" disabled={uploading}>{uploading ? "Saqlanmoqda..." : "+ Darslikni saqlash"}</button>
+              <label>Sinf<select value={bookGrade} onChange={e=>setBookGrade(Number(e.target.value))} disabled={uploading}>{grades.map(n=><option key={n} value={n}>{n}-sinf</option>)}</select></label>
+              <label>PDF darsliklar (bir nechta tanlash mumkin, har biri 40 MB gacha)
+                <input key={`book-pdfs-${bookFileEpoch}`} type="file" accept=".pdf,application/pdf" multiple onChange={selectPdfs} disabled={uploading}/>
+              </label>
+              <label>Darslik nomi (bitta PDF yoki PDFsiz darslik uchun)
+                <input value={bookTitle} onChange={e=>setBookTitle(e.target.value)} required={selectedPdfFiles.length===0} disabled={uploading} placeholder="Masalan: Matematika" />
+              </label>
+              <label>Muallif / nashriyot<input value={bookAuthor} onChange={e=>setBookAuthor(e.target.value)} disabled={uploading} placeholder="Muallif yoki nashriyot"/></label>
+              {selectedPdfFiles.length>0 && <div style={{background:'#f5f9ff',border:'1px solid #dbe6f3',borderRadius:10,padding:12}}>
+                <strong style={{color:'#163c65'}}>{selectedPdfFiles.length} ta PDF tanlandi</strong>
+                <ul style={{margin:'8px 0 0',paddingLeft:20,color:'#52708d'}}>{selectedPdfFiles.map((file,index)=><li key={`${file.name}-${index}`}>{file.name} · {(file.size/1024/1024).toFixed(1)} MB</li>)}</ul>
+                {selectedPdfFiles.length>1&&<p className="hint" style={{marginBottom:0}}>Har bir PDF alohida darslik bo‘ladi. Nomlar PDF fayllarining nomidan olinadi. Barchasi {bookGrade}-sinf ro‘yxatiga qo‘shiladi.</p>}
+              </div>}
+              {bookUploadProgress && <p role="status" className="hint">Yuklanmoqda: {bookUploadProgress}</p>}
+              <button className="btn btn-primary" type="submit" disabled={uploading}>{uploading ? 'PDFlar yuklanmoqda...' : selectedPdfFiles.length>1?`+ ${selectedPdfFiles.length} ta darslikni saqlash`:'+ Darslikni saqlash'}</button>
+              <p className="hint">Yangi darsliklar avvalgi darsliklarni almashtirmaydi. Saqlangach chap tomondagi sinf ro‘yxatida ko‘rinadi.</p>
             </form>
           </section>
         </div>

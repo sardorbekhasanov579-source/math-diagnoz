@@ -1,0 +1,20 @@
+/* Only AI answer body. MATH-DIAGNOZ layout/colors are unchanged. */
+.v2-math-answer{font-size:13px;line-height:1.85;color:#224d78;overflow-wrap:anywhere;min-width:0}
+.v2-math-answer :first-child{margin-top:0}
+.v2-math-answer :last-child{margin-bottom:0}
+.v2-chat .v2-math-answer p{white-space:normal;margin:10px 0;line-height:1.85}
+.v2-math-answer h1,.v2-math-answer h2,.v2-math-answer h3,.v2-math-answer h4{font-size:14px;line-height:1.45;color:#123b75;font-weight:800;margin:18px 0 7px}
+.v2-math-answer h1{font-size:16px}.v2-math-answer h2{font-size:15px}
+.v2-math-answer :is(ul,ol){margin:8px 0;padding-left:24px;display:block}
+.v2-math-answer li{padding-left:2px;margin:4px 0}
+.v2-math-answer strong{color:#113b70;font-weight:800}
+.v2-math-answer blockquote{margin:12px 0;padding:10px 14px;background:#ebf5ff;border-left:3px solid #4b91de;border-radius:6px}
+.v2-math-answer p code,.v2-math-answer li code{font-size:12px;background:#e8f1ff;padding:2px 5px;border-radius:5px;white-space:break-spaces}
+.v2-math-answer pre{max-width:100%;overflow-x:auto;background:#eaf3fe;border:1px solid #d8e8fc;border-radius:10px;padding:12px}
+.v2-math-answer pre code{padding:0;background:transparent}
+.v2-math-answer .katex{font-size:1.08em;white-space:nowrap}
+.v2-math-answer .katex-display{margin:12px 0;padding:10px 5px;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.v2-math-answer .katex-display>.katex{min-width:min-content}
+.v2-math-answer table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;margin:10px 0}
+.v2-math-answer :is(th,td){border:1px solid #d7e6f7;padding:7px 10px;text-align:left}
+.v2-math-note{font-size:11px!important;color:#667f99!important;white-space:normal!important;border-top:1px solid #d7e6f7;padding-top:10px;margin-top:14px}

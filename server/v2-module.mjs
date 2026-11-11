@@ -92,14 +92,14 @@ function sampleMath({grade,topic,count}){
 }
 function validateQuestions(arr){if(!Array.isArray(arr))throw new Error('AI noto‘g‘ri savollar qaytardi');return arr.slice(0,50).map((q,i)=>{if(typeof q.text!=='string'||q.text.length<6||q.text.length>800||!Array.isArray(q.options)||q.options.length!==4||q.options.some(o=>typeof o!=='string'||!o.trim()||o.length>300)||!Number.isInteger(q.correct)||q.correct<0||q.correct>3)throw new Error(`${i+1}-savol formati noto‘g‘ri`);return {text:q.text.trim(),options:q.options.map(x=>x.trim()),correct:q.correct,explanation:String(q.explanation||'').slice(0,900)}})}
 function config(){return {configured:!!process.env.GEMINI_API_KEY,provider:process.env.GEMINI_API_KEY?'Gemini API':'Oflayn namuna generatori',model:process.env.GEMINI_MODEL||'gemini-2.5-flash'}}
-async function gemini(prompt,jsonMode=false){
+async function gemini(prompt,jsonMode=false,maxTokens=jsonMode?8192:1500){
  const key=process.env.GEMINI_API_KEY
  if(!key)throw new Error('GEMINI_API_KEY sozlanmagan')
  const model=process.env.GEMINI_MODEL||'gemini-2.5-flash'
  if(!/^[-a-zA-Z0-9_.]+$/.test(model))throw new Error('AI_MODEL noto‘g‘ri')
  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),28000)
  try{
-  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:0.55,maxOutputTokens:jsonMode?8192:1500,...(jsonMode?{responseMimeType:'application/json'}:{})}}),signal:ctl.signal})
+  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:0.55,maxOutputTokens:maxTokens,...(jsonMode?{responseMimeType:'application/json'}:{})}}),signal:ctl.signal})
   if(!response.ok){const code=response.status;throw new Error(`AI xizmati javob bermadi (HTTP ${code}). API limit yoki kalitni tekshiring.`)}
   const json=await response.json();const text=(json.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('')
   if(!text)throw new Error('AI javobi bo‘sh keldi')
@@ -146,8 +146,23 @@ export async function handleV2({path,method,url,req,res,actor}){
   const d=await body(req),question=scrub(d.question),grade=clamp(Number(d.grade)||5,5,9)
   if(question.length<8||question.length>800)return err(res,400,'Savol uzunligi 8–800 belgi bo‘lsin'),true
   if(!process.env.GEMINI_API_KEY)return err(res,503,'AI o‘quvchi yordamchisi uchun GEMINI_API_KEY talab qilinadi. Oflayn mashqlar bo‘limidan foydalaning.'),true
-  const answer=await gemini(`O‘zbek tilida ${grade}-sinf o‘quvchisiga matematika bo‘yicha xavfsiz yordam ber. Masalani tushuntir, usulini bosqichma-bosqich ko‘rsat, bolaning shaxsiy ma’lumotini so‘rama. Savol: ${question}`)
-  reply(res,200,{answer:answer.slice(0,4000),source:'ai'});return true
+  // Trusted reference facts for common formulas reduce (but cannot eliminate) AI errors.
+  const formulaHints = /geron|heron/i.test(question)
+   ? 'Nazorat uchun to‘g‘ri Geron formulasi: p=(a+b+c)/2, S=\\sqrt{p(p-a)(p-b)(p-c)}. 3, 4, 5 tomonli uchburchakda p=6 va S=6. a+b>c, a+c>b, b+c>a shartini tekshir.'
+   : /pifagor|pythagor/i.test(question)
+   ? 'Nazorat uchun Pifagor teoremasi: faqat to‘g‘ri burchakli uchburchakda c^2=a^2+b^2 (c — gipotenuza). Masalan, 3^2+4^2=5^2.'
+   : ''
+  const prompt = `Siz ${grade}-sinf o‘quvchisining o‘zbekcha matematika yordamchisisiz. Maqsad: o‘quvchini yechimni tushunishga o‘rgatish, tayyor javobni asossiz bermaslik.
+Quyidagi qat’iy formatda javob bering:
+### 1. Ta’rif va berilganlar
+### 2. Formula
+### 3. Bosqichma-bosqich yechim
+### 4. Tekshirish
+### 5. Yakuniy javob
+Matematik belgilarni faqat LaTeX formatida yozing: satr ichida $...$, alohida formulalar uchun yangi qatorda $$...$$. Formulani uchta teskari apostrofli kod blokiga joylamang. Har bir hisobni mustaqil qayta hisoblab tekshiring; aniqlanmagan qiymatni to‘qimang. Agar sonlar berilmagan bo‘lsa, umumiy formulani va TO‘G‘RI oddiy misolni ko‘rsating. Xato yoki yetishmayotgan ma’lumot bo‘lsa, buni ochiq ayting. Markdown sarlavha va ro‘yxatlar ishlatishingiz mumkin. Shaxsiy ma’lumotlarni so‘ramang. ${formulaHints}
+O‘quvchi savoli: ${question}`
+  const answer=await gemini(prompt,false,3200)
+  reply(res,200,{answer:answer.slice(0,10000),source:'ai',warning:'AI matematik xato qilishi mumkin; muhim yechimni tekshiring.'});return true
  }
  if(path==='/api/v2/assessment/bank'&&method==='GET'){
   if(!manager(actor))return err(res,403,'Savollarni faqat administrator boshqaradi'),true
