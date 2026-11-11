@@ -4,6 +4,7 @@ import AuthScreen, { api, type SignedUser } from './AuthScreen'
 import PublicLanding from './PublicLanding'
 import PracticePanel from './PracticePanel'
 import V2Modules from './V2Modules'
+import MathAnswer from './MathAnswer'
 import ParentChildPicker from './ParentChildPicker'
 import TeacherParentLinks from './TeacherParentLinks'
 import AssessmentReport from './AssessmentReport'
@@ -1608,9 +1609,9 @@ function App() {
              <h3>Tekshiruv natijasi: {wordFileName}</h3>
              <p>{wordPreview.questions.length} ta to‘g‘ri savol · {wordPreview.errors.length} ta xato</p>
              {wordPreview.errors.map((error,i)=><p key={i} style={{color:'#b42318'}}>⚠ {error}</p>)}
-             {wordPreview.questions.map((q,i)=><div className="question-row" key={i}><b>{i+1}. {q.text || 'Rasmli savol'}</b>
+             {wordPreview.questions.map((q,i)=><div className="question-row" key={i}><b>{i+1}. <MathAnswer compact answer={q.text || 'Rasmli savol'}/></b>
              {q.images.map((src,k)=><img key={k} src={src} alt={`${i+1}-savol rasmi`} className="md-word-image" />)}
-             {q.options.map((v,k)=><div key={k}><small>{String.fromCharCode(65+k)}) {v}</small>{(q.optionImages[k]||[]).map((src,j)=><img key={j} src={src} alt="Variant rasmi" className="md-word-image" />)}</div>)}
+             {q.options.map((v,k)=><div key={k}><small>{String.fromCharCode(65+k)}) <MathAnswer compact answer={v}/></small>{(q.optionImages[k]||[]).map((src,j)=><img key={j} src={src} alt="Variant rasmi" className="md-word-image" />)}</div>)}
              <small>{q.topic || topicForQuestion || 'Bob testi'} · To‘g‘ri: {String.fromCharCode(65+q.correct)}</small></div>)}
              <div style={{display:'flex',gap:10,marginTop:12,flexWrap:'wrap'}}>
                <button type="button" className="btn btn-primary" disabled={wordPreview.errors.length>0 || wordPreview.questions.length===0} onClick={confirmWordImport}>✓ {wordPreview.questions.length} ta savolni bobga qo‘shish</button>
@@ -1651,10 +1652,10 @@ function App() {
            </section>
            <section className="panel"><div className="panel-head"><h2>Tanlangan bob savollari</h2><span className="tag">{questions.filter(q=>q.bookId===selectedBook&&q.chapterId===currentChapter?.id).length} ta</span></div>
              {questions.filter(q=>q.bookId===selectedBook&&q.chapterId===currentChapter?.id).length===0?<div className="empty">Bu bobga hali savol biriktirilmagan.</div>:questions.filter(q=>q.bookId===selectedBook&&q.chapterId===currentChapter?.id).map((q,i)=><div className="question-row" key={q.id}>
-               <b>{i+1}. {q.text||'Rasmli savol'}</b>
+               <b>{i+1}. <MathAnswer compact answer={q.text||'Rasmli savol'}/></b>
                <SavedQuestionImages imageKeys={q.imageKeys} label={`${i+1}-savol rasmi`} />
                {q.options.map((o,k)=><div key={k} className="md-option-view">
-                 <span style={{fontSize:12}}>{String.fromCharCode(65+k)}) {o}{q.correct===k?' ✓':''}</span>
+                 <span style={{fontSize:12}}>{String.fromCharCode(65+k)}) <MathAnswer compact answer={o}/>{q.correct===k?' ✓':''}</span>
                  <SavedQuestionImages imageKeys={q.optionImageKeys?.[k]} label="Variant rasmi"/>
                </div>)}
                <small>{q.topic||'Umumiy bob testi'} · To‘g‘ri javob: {String.fromCharCode(65+q.correct)}</small>
@@ -1685,7 +1686,7 @@ function App() {
              </div>
              <p className="hint">Bo‘sh qoldirilgan parametrlar «Admin sozlamalari»dagi qiymatdan olinadi. Bitta testning vaqtini alohida belgilash mumkin.</p>
              <div className="md-v06-toolbar"><strong>Testga kiritiladigan savollar</strong><button type="button" className="btn btn-outline" onClick={()=>setChosenQuestions(currentChapterQuestions.map(q=>q.id))}>Hammasini belgilash</button><button type="button" className="btn btn-outline" onClick={()=>setChosenQuestions([])}>Tozalash</button></div>
-             {currentChapterQuestions.length===0?<div className="empty">Ushbu bobda savol yo‘q. Avval savollar bankiga Word yoki qo‘lda savol qo‘shing.</div>:currentChapterQuestions.map((q,i)=><label className="md-v06-checkrow" key={q.id}><input type="checkbox" checked={chosenQuestions.includes(q.id)} onChange={e=>setChosenQuestions(old=>e.target.checked?[...new Set([...old,q.id])]:old.filter(id=>id!==q.id))}/><span>{i+1}. {q.text||'Rasmli savol'} <small>({q.topic||'Bob testi'})</small></span></label>)}
+             {currentChapterQuestions.length===0?<div className="empty">Ushbu bobda savol yo‘q. Avval savollar bankiga Word yoki qo‘lda savol qo‘shing.</div>:currentChapterQuestions.map((q,i)=><label className="md-v06-checkrow" key={q.id}><input type="checkbox" checked={chosenQuestions.includes(q.id)} onChange={e=>setChosenQuestions(old=>e.target.checked?[...new Set([...old,q.id])]:old.filter(id=>id!==q.id))}/><span>{i+1}. <MathAnswer compact answer={q.text||'Rasmli savol'}/> <small>({q.topic||'Bob testi'})</small></span></label>)}
              <button className="btn btn-primary" disabled={!currentChapter||!currentChapterQuestions.length}>+ Tanlangan {chosenQuestions.filter(id=>currentChapterQuestions.some(q=>q.id===id)).length} ta savoldan test yaratish</button>
            </form>
          </section>
@@ -1749,9 +1750,9 @@ function App() {
                <small>⏱ Vaqt tugashi bilan test avtomatik yakunlanadi.</small>
              </div>
              <p className="hint">Javoblaringiz avtomatik saqlanadi. Javobsiz savollar 0 ball bo‘ladi. «Testni yakunlash» tugmasini muddatdan oldin ham bosish mumkin.</p>
-             {runningQuestions.map((q,i)=><div className="question-row" key={q.id}><b>{i+1}. {q.text||'Rasmli savol'}</b>
+             {runningQuestions.map((q,i)=><div className="question-row" key={q.id}><b>{i+1}. <MathAnswer compact answer={q.text||'Rasmli savol'}/></b>
                <SavedQuestionImages imageKeys={q.imageKeys} label="Savol rasmi"/>
-               {q.options.map((opt,k)=><label className="md-test-option" key={k}><input type="radio" name={`student-${q.id}`} checked={studentAnswers[q.id]===k} onChange={()=>answerQuestion(q.id,k)}/><span>{String.fromCharCode(65+k)}) {opt}<SavedQuestionImages imageKeys={q.optionImageKeys?.[k]} label="Variant rasmi"/></span></label>)}
+               {q.options.map((opt,k)=><label className="md-test-option" key={k}><input type="radio" name={`student-${q.id}`} checked={studentAnswers[q.id]===k} onChange={()=>answerQuestion(q.id,k)}/><span>{String.fromCharCode(65+k)}) <MathAnswer compact answer={opt}/><SavedQuestionImages imageKeys={q.optionImageKeys?.[k]} label="Variant rasmi"/></span></label>)}
              </div>)}
              <div className="md-v06-toolbar"><span>Javob berildi: {runningQuestions.filter(q=>studentAnswers[q.id]!==undefined).length}/{runningQuestions.length}</span><button type="button" className="btn btn-primary" onClick={()=>finishStudentTest('submitted')}>Testni yakunlash</button><button type="button" className="btn btn-outline" onClick={()=>{setPage('dashboard');setNotice('Test davom etmoqda. Hisoblagich to‘xtamaydi. O‘quvchilar sahifasiga qaytib yakunlang.')}}>Boshqa bo‘limga o‘tish</button></div>
            </> : <div className="md-v06-result">
@@ -1897,7 +1898,7 @@ function App() {
               <div className="md-button-row md27-actions"><button type="button" className="btn btn-outline" aria-expanded={opened} onClick={()=>{setExpandedAssignment(opened?null:a.id);setPreviewAssignmentQuestions(false);if(!opened)void refreshAssignmentStatus()}}>{opened?'▴ Yopish':'◉ Holatini ko‘rish'}</button><button type="button" className="btn md-btn-danger" onClick={()=>{if(window.confirm('Testni bu sinfdan olib tashlaysizmi?')){setAssignments(old=>old.filter(x=>x.id!==a.id));setExpandedAssignment(null)}}}>Bekor qilish</button></div>
               {opened&&<div className="md27-detail"><div className="md27-detail-header"><strong>Test ma’lumotlari</strong><button type="button" className="btn btn-outline" onClick={()=>setPreviewAssignmentQuestions(v=>!v)}>{previewAssignmentQuestions?'Savollarni yashirish':'Savollarni ko‘rish'}</button></div>
                 <div className="md27-meta"><span>Savollar: <b>{test?.questionIds.length||0}</b></span><span>Davomiylik: <b>{test?testDuration(test):'—'} daqiqa</b></span><span>Yopilishi: <b>{displayDateTime(report?.endAt||test?.availableUntil)}</b></span></div>
-                {previewAssignmentQuestions&&<ol className="md27-question-list">{test?.questionIds.map(id=>questions.find(q=>q.id===id)).filter((q):q is Question=>Boolean(q)).map(q=><li key={q.id}><b>{q.text||'Rasmli savol'}</b><SavedQuestionImages imageKeys={q.imageKeys} label="Savol rasmi"/><ul>{q.options.map((opt,i)=><li className={q.correct===i?'md27-correct':''} key={i}>{String.fromCharCode(65+i)}) {opt}{q.correct===i?' ✓':''}<SavedQuestionImages imageKeys={q.optionImageKeys?.[i]} label="Variant rasmi"/></li>)}</ul></li>)}</ol>}
+                {previewAssignmentQuestions&&<ol className="md27-question-list">{test?.questionIds.map(id=>questions.find(q=>q.id===id)).filter((q):q is Question=>Boolean(q)).map(q=><li key={q.id}><b><MathAnswer compact answer={q.text||'Rasmli savol'}/></b><SavedQuestionImages imageKeys={q.imageKeys} label="Savol rasmi"/><ul>{q.options.map((opt,i)=><li className={q.correct===i?'md27-correct':''} key={i}>{String.fromCharCode(65+i)}) <MathAnswer compact answer={opt}/>{q.correct===i?' ✓':''}<SavedQuestionImages imageKeys={q.optionImageKeys?.[i]} label="Variant rasmi"/></li>)}</ul></li>)}</ol>}
                 <strong>O‘quvchilar holati</strong>
                 {!report?<p className="hint">Monitoring yuklanmoqda. «Holatni yangilash»ni bosing.</p>:report.students.length===0?<p className="hint">Sinfga faol o‘quvchi biriktirilmagan.</p>:<div className="md27-student-list">{report.students.map(u=><div key={u.id} className="md27-student-row"><span>{u.name}</span><span>{u.status==='finished'?`✓ Yakunladi · ${u.score}/${u.total}`:u.status==='running'?'▶ Ishlamoqda':u.status==='expired'?'⏰ Vaqti tugagan':u.status==='scheduled'?'◷ Boshlanishni kutmoqda':u.status==='closed'?'⏰ Test yopilgan':'— Boshlamagan'}</span></div>)}</div>}
                 <small className="hint">Natijalar 20 soniyada yangilanadi. Har bir o‘quvchining yakunlangan testi hisobga olinadi.</small>

@@ -93,6 +93,10 @@ function sampleMath({grade,topic,count}){
  return out
 }
 function validateQuestions(arr){if(!Array.isArray(arr))throw new Error('AI noto‘g‘ri savollar qaytardi');return arr.slice(0,50).map((q,i)=>{if(typeof q.text!=='string'||q.text.length<6||q.text.length>800||!Array.isArray(q.options)||q.options.length!==4||q.options.some(o=>typeof o!=='string'||!o.trim()||o.length>300)||!Number.isInteger(q.correct)||q.correct<0||q.correct>3)throw new Error(`${i+1}-savol formati noto‘g‘ri`);return {text:q.text.trim(),options:q.options.map(x=>x.trim()),correct:q.correct,explanation:String(q.explanation||'').slice(0,900)}})}
+// Shared formatting guidance for all generated teaching material.
+// Output remains untrusted: the browser escapes HTML and renders safe KaTeX.
+const MATH_OUTPUT_GUIDE = `Matematik formulalarni bir xil Markdown+LaTeX ko‘rinishida yozing. Satr ichida $a^2+b^2=c^2$, alohida formulada yangi satrlarga $$\n\\frac{a+b}{2}\n$$ yozing. \( \) va \[ \] o‘rniga $ va $$ ishlating. Formula atrofida kod bloki (uchta teskari apostrof) ishlatmang. Sarlavhalar Markdown bilan, qadamlar raqamli ro‘yxatda. Sonli misolda natijani qayta tekshiring. Agar ma’lumot yetishmasa to‘qimang, savol bering. Shaxsiy ma’lumotlarni so‘ramang.`
+
 function config(){return {configured:!!process.env.GEMINI_API_KEY,provider:process.env.GEMINI_API_KEY?'Gemini API':'Oflayn namuna generatori',model:process.env.GEMINI_MODEL||'gemini-2.5-flash'}}
 async function gemini(prompt,jsonMode=false,maxTokens=jsonMode?8192:1500){
  const key=process.env.GEMINI_API_KEY
@@ -127,7 +131,7 @@ export async function handleV2({path,method,url,req,res,actor}){
   const d=await body(req),grade=Number(d.grade),topic=scrub(d.topic),count=clamp(Math.trunc(Number(d.count)||10),1,30)
   if(![5,6,7,8,9].includes(grade)||topic.length<3||topic.length>110)return err(res,400,'Sinf va mavzuni tekshiring'),true
   if(!process.env.GEMINI_API_KEY){reply(res,200,{source:'demo',warning:'Bu savollar AI tomonidan emas, oflayn namuna algoritmi bilan tuzildi. Mavzuga mosligini tekshiring.',questions:sampleMath({grade,topic,count})});return true}
-  const prompt=`Siz O‘zbekiston 5–9-sinf matematika o‘qituvchisiga yordam berasiz. ${grade}-sinf, mavzu "${topic}". O‘quvchining shaxsiy ma’lumotlari kiritilmagan. ${count} ta turlicha, matematik jihatdan TO‘G‘RI, sodda va o‘rta darajadagi o‘zbekcha ko‘p variantli savol tuzing. Faqat JSON obyekt qaytaring: {"questions":[{"text":"...", "options":["...","...","...","..."],"correct":0,"explanation":"..."}]}. correct 0-3 indeks, aniq bitta to‘g‘ri javob. Mazmunning maqbulligini o‘qituvchi tasdiqlaydi. Boshqa izoh yozmang.`
+  const prompt=`Siz O‘zbekiston 5–9-sinf matematika o‘qituvchisiga yordam berasiz. ${grade}-sinf, mavzu "${topic}". O‘quvchining shaxsiy ma’lumotlari kiritilmagan. ${count} ta turlicha, matematik jihatdan TO‘G‘RI, sodda va o‘rta darajadagi o‘zbekcha ko‘p variantli savol tuzing. Faqat JSON obyekt qaytaring: {"questions":[{"text":"...", "options":["...","...","...","..."],"correct":0,"explanation":"..."}]}. correct 0-3 indeks, aniq bitta to‘g‘ri javob. Formulalarni JSON matn maydonlarida $...$ ichida yozing (masalan, $x^2=9$); JSON escaping qoidalariga rioya qiling. Har bir javobni matematik tekshiring. Mazmunning maqbulligini o‘qituvchi tasdiqlaydi. Boshqa izoh yozmang.`
   const raw=await gemini(prompt,true),parsed=JSON.parse(raw);const qs=validateQuestions(parsed.questions)
   reply(res,200,{source:'ai',model:config().model,questions:qs,warning:'AI matematik xato qilishi mumkin; nashrdan oldin har bir savolni tekshiring.'});return true
  }
@@ -138,7 +142,7 @@ export async function handleV2({path,method,url,req,res,actor}){
   if(!['plan','protocol','schedule','slides','worksheet'].includes(kind)||![5,6,7,8,9].includes(grade)||topic.length<3||topic.length>120||school.length>100)return err(res,400,'Hujjat turi, sinf yoki mavzu noto‘g‘ri'),true
   if(!process.env.GEMINI_API_KEY)return err(res,503,'AI hujjat yaratish uchun GEMINI_API_KEY sozlang'),true
   const types={plan:'45 daqiqalik batafsil dars ishlanmasi',protocol:'kafedra yig‘ilishi bayonnomasi namunasi',schedule:'to‘rt haftalik ish reja namunasi',slides:'10 slaydli taqdimot rejasi',worksheet:'10 ta turli mashq va javob kaliti'}
-  const answer=await gemini(`O‘zbekiston maktabi uchun o‘zbek tilida tahrirlanadigan ${types[kind]} tayyorlang. Maktab: ${school||'Maktab'}, sinf: ${grade}, mavzu: ${topic}. Matematik aniqlikka e’tibor bering. Shaxsiy ma’lumotlar yoki real imzo va rasmiy tasdiqni to‘qimang; zarur joylarni [to‘ldiring] deb qoldiring. Matn tushunarli bo‘lsin. Tayyor material qog‘ozda ishga yaroqli bo‘lsin.`)
+  const answer=await gemini(`O‘zbekiston maktabi uchun o‘zbek tilida tahrirlanadigan ${types[kind]} tayyorlang. Maktab: ${school||'Maktab'}, sinf: ${grade}, mavzu: ${topic}. Matematik aniqlikka e’tibor bering. Shaxsiy ma’lumotlar yoki real imzo va rasmiy tasdiqni to‘qimang; zarur joylarni [to‘ldiring] deb qoldiring. Matn tushunarli bo‘lsin. Tayyor material qog‘ozda ishga yaroqli bo‘lsin. ${MATH_OUTPUT_GUIDE}`)
   reply(res,200,{text:answer.slice(0,11000),source:'ai',warning:'AI matnini rasmiy hujjat sifatida ishlatishdan oldin mas’ul shaxs tekshirsin.'});return true
  }
  if(path==='/api/v2/ai/tutor'&&method==='POST'){
@@ -161,7 +165,7 @@ Quyidagi qat’iy formatda javob bering:
 ### 3. Bosqichma-bosqich yechim
 ### 4. Tekshirish
 ### 5. Yakuniy javob
-Matematik belgilarni faqat LaTeX formatida yozing: satr ichida $...$, alohida formulalar uchun yangi qatorda $$...$$. Formulani uchta teskari apostrofli kod blokiga joylamang. Har bir hisobni mustaqil qayta hisoblab tekshiring; aniqlanmagan qiymatni to‘qimang. Agar sonlar berilmagan bo‘lsa, umumiy formulani va TO‘G‘RI oddiy misolni ko‘rsating. Xato yoki yetishmayotgan ma’lumot bo‘lsa, buni ochiq ayting. Markdown sarlavha va ro‘yxatlar ishlatishingiz mumkin. Shaxsiy ma’lumotlarni so‘ramang. ${formulaHints}
+Matematik belgilarni faqat LaTeX formatida yozing: satr ichida $...$, alohida formulalar uchun yangi qatorda $$...$$. Formulani uchta teskari apostrofli kod blokiga joylamang. Har bir hisobni mustaqil qayta hisoblab tekshiring; aniqlanmagan qiymatni to‘qimang. Agar sonlar berilmagan bo‘lsa, umumiy formulani va TO‘G‘RI oddiy misolni ko‘rsating. Xato yoki yetishmayotgan ma’lumot bo‘lsa, buni ochiq ayting. Markdown sarlavha va ro‘yxatlar ishlatishingiz mumkin. Shaxsiy ma’lumotlarni so‘ramang. ${MATH_OUTPUT_GUIDE} ${formulaHints}
 O‘quvchi savoli: ${question}`
   const answer=await gemini(prompt,false,3200)
   reply(res,200,{answer:answer.slice(0,10000),source:'ai',warning:'AI matematik xato qilishi mumkin; muhim yechimni tekshiring.'});return true
@@ -180,7 +184,7 @@ O‘quvchi savoli: ${question}`
   if(!PROGRAMS[program]||![1,2].includes(stage))return err(res,400,'Dastur yoki bosqich noto‘g‘ri'),true
   if(!process.env.GEMINI_API_KEY)return err(res,503,'AI uchun GEMINI_API_KEY kerak'),true
   const scope=PROGRAMS[program].audience
-  const prompt=`Siz ta’lim metodisti sifatida O‘zbekiston maktablari uchun tayyorgarlik mashqlari tayyorlaysiz. ${program} uslubidagi, lekin rasmiy testlardan ko‘chirilmagan ORIGINAL ${count} ta topshiriq yarating. Auditoriya: ${scope}. Bosqich ${stage}: ${stage===1?'bazaviy va tushunarli':'murakkabroq, amaliy va asoslashga undovchi'}. TALIS bo‘lsa o‘quvchi matematikasi emas, o‘qituvchilar va rahbarlar uchun pedagogik so‘rovnoma mavzusi bo‘lsin. Faqat o‘zbekcha JSON qaytaring: {"questions":[{"text":"savol","options":["A","B","C","D"],"correct":0,"explanation":"asos"}]}. Har savolda bitta aniq to‘g‘ri javob, correct 0–3. To‘g‘rilikni tekshiring; uchinchi tomonning maxfiy yoki shaxsiy ma’lumotini ishlatmang.`
+  const prompt=`Siz ta’lim metodisti sifatida O‘zbekiston maktablari uchun tayyorgarlik mashqlari tayyorlaysiz. ${program} uslubidagi, lekin rasmiy testlardan ko‘chirilmagan ORIGINAL ${count} ta topshiriq yarating. Auditoriya: ${scope}. Bosqich ${stage}: ${stage===1?'bazaviy va tushunarli':'murakkabroq, amaliy va asoslashga undovchi'}. TALIS bo‘lsa o‘quvchi matematikasi emas, o‘qituvchilar va rahbarlar uchun pedagogik so‘rovnoma mavzusi bo‘lsin. Faqat o‘zbekcha JSON qaytaring: {"questions":[{"text":"savol","options":["A","B","C","D"],"correct":0,"explanation":"asos"}]}. Har savolda bitta aniq to‘g‘ri javob, correct 0–3. To‘g‘rilikni tekshiring; uchinchi tomonning maxfiy yoki shaxsiy ma’lumotini ishlatmang. Formulalarni JSON qatorlarida $...$ bilan yozing, hisoblarni tekshiring.`
   const raw=await gemini(prompt,true),parsed=JSON.parse(raw),qs=validateQuestions(parsed.questions)
   if(qs.length<1)return err(res,502,'AI savol qaytarmadi'),true
   reply(res,200,{questions:qs,source:'ai',warning:'AI savollari nashr qilinmagan. To‘g‘ri javoblarni tekshirib, Saqlash tugmasini bosing.'});return true

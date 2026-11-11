@@ -18,3 +18,12 @@
 .v2-math-answer table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;margin:10px 0}
 .v2-math-answer :is(th,td){border:1px solid #d7e6f7;padding:7px 10px;text-align:left}
 .v2-math-note{font-size:11px!important;color:#667f99!important;white-space:normal!important;border-top:1px solid #d7e6f7;padding-top:10px;margin-top:14px}
+
+/* Inline mode lets LaTeX be displayed inside test buttons and choice labels. */
+.v2-math-inline{display:inline;line-height:inherit;font:inherit;color:inherit}
+.v2-math-inline>span{display:inline}
+.v2-math-inline .katex{font-size:1.02em}
+.v2-question .v2-math-answer .katex-display{max-width:100%;overflow-x:auto}
+.v2-teacher-preview{padding:16px 18px;border:1px solid #d7e6f7;border-radius:12px;background:#fafdff;max-height:540px;overflow:auto}
+.v2-teacher-preview .v2-math-answer{font-size:14px}
+.v2-teacher-preview-help{margin:7px 0 12px;color:#6b8199;font-size:12px}
