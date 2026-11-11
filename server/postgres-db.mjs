@@ -24,7 +24,7 @@ function translate(sql) {
   query=query.replace(/\bAS\s+([a-z_]+[A-Z][A-Za-z0-9_]*)\b/g,(_,alias)=>`AS "${alias}"`)
   let num=0
   query=query.replace(/\?/g,()=>'$'+(++num))
-  if(/^\s*INSERT INTO\s+(users|classes|schools)\b/i.test(query)&&!query.includes('RETURNING'))query+=' RETURNING id'
+  if(/^\s*INSERT INTO\s+(users|classes|schools|v2_support_tickets)\b/i.test(query)&&!query.includes('RETURNING'))query+=' RETURNING id'
   return query
 }
 export async function get(sql,...args){const rows=(await pool.query(translate(sql),args)).rows;return rows[0]??null}
@@ -52,7 +52,7 @@ export async function ensureSchool(){
 }
 export async function filePut(id,bytes){await pool.query('INSERT INTO asset_blobs(id,content) VALUES($1,$2)',[id,bytes])}
 export async function fileGet(id){const row=(await pool.query('SELECT content FROM asset_blobs WHERE id=$1',[id])).rows[0];return row?.content??null}
-const BACKUP_TABLES=['users','sessions','schools','classes','app_state','exams','results','assets','audit','practice_attempts','asset_blobs']
+const BACKUP_TABLES=['users','sessions','schools','classes','app_state','exams','results','assets','audit','practice_attempts','asset_blobs','v2_support_tickets','v2_assessment_results','v2_assessment_questions']
 export async function backupTables(table){if(!BACKUP_TABLES.includes(table))throw new Error('No such table');return (await pool.query('SELECT * FROM '+table)).rows}
 export async function getClient(){return pool.connect()}
 export async function closePool(){await pool.end()}

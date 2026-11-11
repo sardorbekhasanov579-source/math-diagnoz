@@ -1,7 +1,7 @@
 {
   "name": "math-diagnoz",
   "private": true,
-  "version": "1.7.0-neon-render-pilot",
+  "version": "2.0.0-ai-pilot",
   "type": "module",
   "scripts": {
     "dev": "vite",

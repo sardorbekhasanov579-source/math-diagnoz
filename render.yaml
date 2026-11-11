@@ -14,3 +14,6 @@ services:
         sync: false
       - key: MD_SCHOOL_MODE
         value: '1'
+      # Ixtiyoriy AI: Render Environment da maxfiy tarzda o‘rnating.
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash

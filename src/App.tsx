@@ -3,9 +3,11 @@ import mammoth from 'mammoth'
 import AuthScreen, { api, type SignedUser } from './AuthScreen'
 import PublicLanding from './PublicLanding'
 import PracticePanel from './PracticePanel'
+import V2Modules from './V2Modules'
+import ParentChildPicker from './ParentChildPicker'
 import './App.css'
 
-type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice' | 'admins'
+type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice' | 'admins' | 'ai' | 'international' | 'teacher-tools' | 'student-assistant' | 'help'
 type Chapter = { id: number; title: string; topics: string[]; startPage?: number; endPage?: number }
 type Book = { id: number; title: string; grade: number; author: string; chapters: Chapter[]; pdfKey?: string; pdfName?: string }
 type Question = { id: number; bookId: number; chapterId: number; topic?: string; text: string; options: string[]; correct: number; imageKeys?: string[]; optionImageKeys?: string[][] }
@@ -213,6 +215,22 @@ const nav: { id: Page; label: string; icon: string }[] = [
   { id: 'library', label: 'Darsliklarni o‘qish', icon: '▤' },
   { id: 'children', label: 'Farzandlar natijasi', icon: '♧' },
   { id: 'ranking', label: 'O‘quvchilar reytingi', icon: '🏆' },
+  {id:'ai',label:'AI test generatori',icon:'✦'},
+  {id:'international',label:'Xalqaro baholash',icon:'◉'},
+  {id:'teacher-tools',label:'O‘qituvchi yordamchisi',icon:'⚒'},
+  {id:'student-assistant',label:'O‘quvchi yordamchisi',icon:'✦'},
+  {id:'help',label:'Yordam markazi',icon:'? '},
+]
+
+const NAV_GROUPS: {title:string;icon:string;ids:Page[]}[] = [
+  {title:'Bosh sahifa',icon:'⌂',ids:['dashboard']},
+  {title:'Maktab boshqaruvi',icon:'🏫',ids:['schools','classes','students','users','admins']},
+  {title:'Ta’lim materiallari',icon:'▤',ids:['books','chapters','library']},
+  {title:'Test va diagnostika',icon:'☑',ids:['questions','tests','quarterly','assignments','diagnostics','reports','ranking','practice']},
+  {title:'Xalqaro baholash',icon:'🌐',ids:['international']},
+  {title:'AI va ta’lim yordamchilari',icon:'✦',ids:['ai','teacher-tools','student-assistant']},
+  {title:'Tizim boshqaruvi',icon:'⚙',ids:['settings','system']},
+  {title:'Yordam markazi',icon:'?',ids:['help']}
 ]
 
 // Mammoth Worddagi matn va rasmlarni HTMLga aylantiradi. HTMLni kod sifatida
@@ -291,6 +309,13 @@ function App() {
   const [checkingSession, setCheckingSession] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [diagnosticStudentId,setDiagnosticStudentId] = useState(0)
+  // v2.1: filters are presentation-only; server users and results stay unchanged.
+  const [userRoleFilter,setUserRoleFilter] = useState<'all'|DemoRole>('all')
+  const [userSearch,setUserSearch] = useState('')
+  const [studentSchoolFilter,setStudentSchoolFilter] = useState(0)
+  const [studentClassFilter,setStudentClassFilter] = useState(0)
+  const [editingTopicIndex,setEditingTopicIndex] = useState<number|null>(null)
+  const [editingTopicName,setEditingTopicName] = useState('')
   const [rankGrade,setRankGrade] = useState(0)
   const [rankClass,setRankClass] = useState(0)
   const [ranking,setRanking] = useState<{studentId:number;displayName:string;className:string;grade:number;average:number;tests:number;rank:number;isMe:boolean}[]>([])
@@ -323,12 +348,13 @@ function App() {
   const roleNav = nav.filter(n => {
     if (role === 'admin') return !['library','children','practice'].includes(n.id)
     if (role === 'assistant_admin') return !['library','children','practice','settings','system','admins'].includes(n.id)
-    if (role === 'teacher') return ['dashboard','books','chapters','questions','tests','quarterly','assignments','students','reports','library','ranking','diagnostics'].includes(n.id)
-    if (role === 'student') return ['dashboard','library','students','quarterly','practice','reports','ranking','diagnostics'].includes(n.id)
-    return ['dashboard','children','reports','ranking','diagnostics'].includes(n.id)
+    if (role === 'teacher') return ['dashboard','books','chapters','questions','tests','quarterly','assignments','students','reports','library','ranking','diagnostics','ai','international','teacher-tools','student-assistant','help'].includes(n.id)
+    if (role === 'student') return ['dashboard','library','students','quarterly','practice','reports','ranking','diagnostics','international','student-assistant','help'].includes(n.id)
+    return ['dashboard','children','reports','ranking','diagnostics','help'].includes(n.id)
   }).map(n => n.id === 'students' && role === 'student' ? {...n,label:'Mening testlarim'} : n)
   const [loggedIn, setLoggedIn] = useState(false)
   const [page, setPage] = useState<Page>('dashboard')
+  const [openGroups, setOpenGroups] = useState<Record<string,boolean>>({'Bosh sahifa':true,'AI va ta’lim yordamchilari':true})
   const [books, setBooks] = useState<Book[]>(() => readStored('math-diagnoz-books-v2', initialBooks))
   const [questions, setQuestions] = useState<Question[]>(() => readStored('math-diagnoz-questions-v2', []))
   const [testSets, setTestSets] = useState<TestSet[]>(() => readStored('math-diagnoz-tests-v06', []))
@@ -549,6 +575,16 @@ function App() {
   const quarterTestGrade=(t:TestSet)=>books.find(b=>b.id===t.bookId)?.grade
   const quarterIsAvailable=(t:TestSet)=>t.kind!=='quarter'||Boolean(quarterTestGrade(t)&&quarterIsEnabled(quarterTestGrade(t)!,t.quarter||1))
   const myClassIds = classes.filter(c => c.teacherId === currentUser.id).map(c => c.id)
+  const userRoleOptions: {id:'all'|DemoRole;label:string}[] = [
+    {id:'all',label:'Barchasi'}, {id:'admin',label:'Super-admin'}, {id:'assistant_admin',label:'Yordamchi admin'},
+    {id:'teacher',label:'O‘qituvchilar'}, {id:'parent',label:'Ota-onalar'}, {id:'student',label:'O‘quvchilar'}
+  ]
+  const filteredUsers=users.filter(u=>(userRoleFilter==='all'||u.role===userRoleFilter)
+    &&([u.name,u.username||'',ROLE_NAMES[u.role],classes.find(c=>c.id===u.classId)?.name||''].join(' ').toLocaleLowerCase().includes(userSearch.toLocaleLowerCase().trim())))
+  const studentVisibleClasses=classes.filter(c=>(isManager||myClassIds.includes(c.id))
+    &&(!studentSchoolFilter||c.schoolId===studentSchoolFilter)
+    &&(!studentClassFilter||c.id===studentClassFilter))
+
   const childIds = (currentUser.childIds || []).filter(id => users.some(u => u.id === id && u.role === 'student'))
   const viewedChild = users.find(u => u.id === parentChildId && childIds.includes(u.id)) || users.find(u=>u.id===childIds[0])
   const visibleAttempts = testAttempts.filter(a => isManager ? true : role === 'teacher' ? a.classId!==undefined && myClassIds.includes(a.classId) : role === 'student' ? a.studentId===currentUser.id : a.studentId!==undefined && childIds.includes(a.studentId))
@@ -743,6 +779,60 @@ function App() {
     setStartPage('')
     setEndPage('')
     setNotice('Bob sahifalari yangilandi.')
+  }
+
+  function renameChapter(e:FormEvent<HTMLFormElement>){
+    e.preventDefault()
+    if(!currentChapter)return
+    const title=String(new FormData(e.currentTarget).get('chapterTitle')||'').trim()
+    if(!title){setNotice('Bob nomi bo‘sh bo‘lmasin.');return}
+    if(currentBook?.chapters.some(c=>c.id!==currentChapter.id&&c.title.toLocaleLowerCase()===title.toLocaleLowerCase())){
+      setNotice('Bu darslikda shu nomli bob allaqachon mavjud.');return
+    }
+    setBooks(old=>old.map(b=>b.id!==selectedBook?b:{...b,chapters:b.chapters.map(c=>c.id===currentChapter.id?{...c,title}:c)}))
+    setNotice('Bob nomi yangilandi. Savollar va testlar shu bobga biriktirilgan holda qoladi.')
+  }
+  function deleteChapter(){
+    if(!currentChapter||!currentBook)return
+    const relatedQuestions=questions.filter(q=>q.bookId===currentBook.id&&q.chapterId===currentChapter.id).length
+    const relatedTests=testSets.filter(t=>t.bookId===currentBook.id&&t.chapterId===currentChapter.id).length
+    if(relatedQuestions||relatedTests){
+      setNotice(`Bobni o‘chirib bo‘lmaydi: unga ${relatedQuestions} ta savol va ${relatedTests} ta test biriktirilgan. Avval ularni xavfsiz ko‘chiring yoki o‘chiring.`)
+      return
+    }
+    if(!window.confirm(`«${currentChapter.title}» bobini va uning mavzularini o‘chirasizmi?`))return
+    const nextChapters=currentBook.chapters.filter(c=>c.id!==currentChapter.id)
+    setBooks(old=>old.map(b=>b.id!==selectedBook?b:{...b,chapters:nextChapters}))
+    setSelectedChapter(nextChapters[0]?.id||0)
+    setEditingTopicIndex(null)
+    setNotice('Bo‘sh bob o‘chirildi. Boshqa darslik va testlarga tegilmadi.')
+  }
+  function renameTopic(e:FormEvent<HTMLFormElement>,index:number){
+    e.preventDefault()
+    if(!currentChapter)return
+    const oldName=currentChapter.topics[index]
+    const title=editingTopicName.trim()
+    if(oldName===undefined||!title){setNotice('Mavzu nomi bo‘sh bo‘lmasin.');return}
+    if(currentChapter.topics.some((t,i)=>i!==index&&t.toLocaleLowerCase()===title.toLocaleLowerCase())){
+      setNotice('Shu nomli mavzu bobda mavjud.');return
+    }
+    setBooks(old=>old.map(b=>b.id!==selectedBook?b:{...b,chapters:b.chapters.map(c=>c.id===currentChapter.id?{...c,topics:c.topics.map((t,i)=>i===index?title:t)}:c)}))
+    // Preserve questions when the topic label is renamed.
+    setQuestions(old=>old.map(q=>q.bookId===selectedBook&&q.chapterId===currentChapter.id&&q.topic===oldName?{...q,topic:title}:q))
+    setTopicForQuestion(t=>t===oldName?title:t)
+    setEditingTopicIndex(null);setEditingTopicName('')
+    setNotice('Mavzu tahrirlandi. Unga biriktirilgan savollarning mavzu nomi ham yangilandi.')
+  }
+  function deleteTopic(index:number){
+    if(!currentChapter)return
+    const name=currentChapter.topics[index]
+    if(name===undefined)return
+    const related=questions.filter(q=>q.bookId===selectedBook&&q.chapterId===currentChapter.id&&q.topic===name).length
+    if(related){setNotice(`«${name}» mavzusida ${related} ta savol bor. Savollarni saqlash uchun mavzuni hozircha o‘chirib bo‘lmaydi.`);return}
+    if(!window.confirm(`«${name}» mavzusini o‘chirasizmi?`))return
+    setBooks(old=>old.map(b=>b.id!==selectedBook?b:{...b,chapters:b.chapters.map(c=>c.id===currentChapter.id?{...c,topics:c.topics.filter((_,i)=>i!==index)}:c)}))
+    setEditingTopicIndex(null);setEditingTopicName('')
+    setNotice('Mavzu o‘chirildi.')
   }
 
   function addTopic(e: FormEvent) {
@@ -1033,6 +1123,17 @@ function App() {
     setNotice('Ma’lumotlar zaxirasi yuklandi (PDF/rasmlarsiz).')
   }
 
+  async function importAiQuestions(bookId:number, chapterId:number, topic:string, draft:{text:string;options:string[];correct:number}[]){
+    if(!(isManager||role==='teacher'))throw new Error('Faqat o‘qituvchi yoki administrator')
+    if(!books.some(b=>b.id===bookId&&b.chapters.some(c=>c.id===chapterId)))throw new Error('Bob topilmadi. Darslikni tekshiring.')
+    const first=Math.max(0,...questions.map(q=>q.id)) + 1
+    const added:Question[]=draft.map((q,i)=>({id:first+i,bookId,chapterId,topic,text:q.text,options:q.options,correct:q.correct}))
+    const updated=[...questions,...added]
+    await api('/api/state/questions','PUT',{value:updated})
+    setQuestions(updated)
+    setNotice(`${added.length} ta AI/namuna savoli savollar bankiga saqlandi. Tekshiruvdan keyin test yarating.`)
+  }
+
   const bookSelect = <select value={selectedBook} onChange={e => { const id = Number(e.target.value); setSelectedBook(id); setSelectedChapter(books.find(b => b.id === id)?.chapters[0]?.id || 0) }}>
     {books.map(b => <option key={b.id} value={b.id}>{b.grade}-sinf · {b.title}</option>)}
   </select>
@@ -1048,12 +1149,88 @@ function App() {
   }
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="sidebar-head"><div className="brand-mark">M</div><div className="brand-name">MATH-DIAGNOZ <small>{ROLE_NAMES[role].toUpperCase()} · PILOT</small></div></div><div className="sidebar-caption">ASOSIY BO‘LIMLAR</div><nav>{roleNav.map(n => <button key={n.id} onClick={() => {setPage(n.id);setNotice('')}} className={'nav-item ' + (page === n.id ? 'active' : '')}><span>{n.icon}</span>{n.label}</button>)}</nav><div className="side-footer">MAKTAB PILOTI · v1.7</div></aside>
+    <aside className="sidebar"><div className="sidebar-head"><div className="brand-mark">M</div><div className="brand-name">MATH-DIAGNOZ <small>{ROLE_NAMES[role].toUpperCase()} · v2.0 (AI)</small></div></div><div className="sidebar-caption">BO‘LIMLAR</div><nav className="v2-sidebar-nav">{NAV_GROUPS.map(group=>{
+      const items=roleNav.filter(n=>group.ids.includes(n.id))
+      if(!items.length)return null
+      const single=items.length===1
+      const opened=openGroups[group.title]===undefined?items.some(n=>n.id===page):openGroups[group.title]
+      return <div key={group.title} className="v2-nav-group">
+        {single?<button className={'nav-item v2-topnav '+(page===items[0].id?'active':'')} onClick={()=>{setPage(items[0].id);setNotice('')}}><span>{group.icon}</span>{group.title==='Bosh sahifa'?group.title:items[0].label}</button>
+        :<><button type="button" className={'v2-group-button '+(opened?'open':'')} onClick={()=>setOpenGroups(p=>({...p,[group.title]:!opened}))}><span className="v2-nav-icon">{group.icon}</span><strong>{group.title}</strong><span aria-hidden="true">{opened?'⌄':'›'}</span></button>{opened&&<div className="v2-subnav">{items.map(n=><button type="button" key={n.id} onClick={()=>{setPage(n.id);setNotice('')}} className={'nav-item '+(page===n.id?'active':'')}><span>{n.icon}</span>{n.label}</button>)}</div>}</>}
+      </div>
+    })}</nav><div className="side-footer">MATH-DIAGNOZ · v2.0 AI</div></aside>
     <div className="main-area"><header className="topbar"><div><span className="muted">MATH-DIAGNOZ</span><span className="slash"> / </span>{roleNav.find(n => n.id === page)?.label}</div><div className="topbar-actions"><button className="ghost" onClick={()=>setShowPublicPage(true)} title="Bosh sahifani ko‘rish">⌂ Bosh sahifa</button><span className="demo-pill">● NEON · RENDER PILOT</span><span className="avatar">{currentUser.name.slice(0,1).toUpperCase()}</span><span>{currentUser.name}</span><button className="ghost" onClick={()=>{void logout()}}>Chiqish</button></div></header>
       <main className="content">{currentUser.verified===false&&<div className="md17-pending-banner"><strong>⌛ Maktab tasdig‘i kutilmoqda</strong><span>Hisobingiz yaratildi. Administrator sinfingizni yoki ota-ona maqomingizni tasdiqlaguncha ayrim imkoniyatlar yopiq. Ota-ona farzandini o‘zi biriktira olmaydi.</span></div>}<div className="page-heading"><div><div className="eyebrow">BOSHQARUV TIZIMI</div><h1>{roleNav.find(n => n.id === page)?.label}</h1><p>Ta’lim materiallarini tizimli boshqarish va diagnostika qilish</p></div><span className="date">MATH-DIAGNOZ · sinov muhiti</span></div>
       {notice && <div className="notice" role="status">{notice}<button className="ghost" onClick={() => setNotice('')}>×</button></div>}
-      {page==='dashboard'&&<section className="md13-welcome"><div><span className="md13-kicker">✦ MATH-DIAGNOZ · RAQAMLI TA’LIM</span><h2>Assalomu alaykum, {currentUser.name.split(' ')[0]}!</h2><p>{isManager?'Barcha maktablar, sinflar va bilim natijalarini bitta joyda boshqaring.':role==='teacher'?'Har bir o‘quvchining o‘sishini kuzating va individual yordamni tashkil qiling.':role==='student'?'Yangi bilimlarni egallang, testlarda qatnashing va o‘z rekordingizni yangilang.':'Farzandlaringizning yutuqlari va bilim rivojlanishini kuzating.'}</p><div className="md-button-row"><button className="md13-welcome-btn" onClick={()=>setPage(role==='student'?'students':role==='parent'?'children':role==='teacher'?'assignments':'quarterly')}>{isManager?'Chorak testlarini boshqarish':role==='teacher'?'Test tayinlash':role==='student'?'Testlarimni ochish':'Farzandlarim'} ↗</button><button className="md13-welcome-ghost" onClick={()=>setPage('diagnostics')}>Matematik pasport →</button></div></div><div className="md13-orbit" aria-hidden="true"><span>π</span><span>∑</span><span>√</span><span>△</span><strong>f(x)</strong></div></section>}
-      {page === 'dashboard' && isManager && <><section className="stat-grid"><div className="stat"><span>DARSLIKLAR</span><strong>{books.length}</strong><small>Elektron katalog</small></div><div className="stat"><span>BOBLAR</span><strong>{books.reduce((x,b)=>x+b.chapters.length,0)}</strong><small>Darslik bo‘limlari</small></div><div className="stat"><span>SAVOLLAR</span><strong>{questions.length}</strong><small>Test savollari</small></div><div className="stat"><span>TESTLAR</span><strong>{testSets.length}</strong><small>{testAttempts.length} ta sinov natijasi</small></div></section><div className="two-cols"><div className="panel"><div className="panel-head"><h2>Tezkor amallar</h2><span className="tag">Boshlash</span></div><div className="action-list"><button onClick={() => setPage('books')}>▤ <span>Yangi darslik qo‘shish</span> →</button><button onClick={() => setPage('chapters')}>▱ <span>Bob va mavzularni tahrirlash</span> →</button><button onClick={() => setPage('questions')}>☷ <span>Test savoli yaratish</span> →</button>{role==='admin'&&<><button onClick={() => setPage('settings')}>⚙ <span>Test va admin sozlamalari</span> →</button><button onClick={() => setPage('system')}>◈ <span>Fayllar, zaxira va audit</span> →</button></>}</div></div><div className="panel"><div className="panel-head"><h2>Ish holati va nazorat</h2></div><div className="steps"><div><i>1</i><span><b>4 ta kabinet va maktablar</b><small>Mahalliy pilotda ishlaydi</small></span></div><div><i>2</i><span><b>Word, PDF va test banki</b><small>Serverli saqlash faol</small></span></div><div><i>3</i><span><b>Login va choraklik testlar</b><small>Mahalliy server nazoratida</small></span></div><div><i>4</i><span><b>Reyting va diagnostika</b><small>Natijalardan hisoblanadi</small></span></div></div></div></div></>}
+      {['ai','international','teacher-tools','student-assistant','help'].includes(page) && <V2Modules key={page} page={page as 'ai'|'international'|'teacher-tools'|'student-assistant'|'help'} role={role} name={currentUser.name} books={books} onImport={importAiQuestions}/>}
+      {page==='dashboard'&&<section className="md13-welcome"><div><span className="md13-kicker">✦ MATH-DIAGNOZ · RAQAMLI TA’LIM</span><h2>Xush kelibsiz, {currentUser.name.split(' ')[0]}!</h2><p>{isManager?'Barcha maktablar, sinflar va bilim natijalarini bitta joyda boshqaring.':role==='teacher'?'Har bir o‘quvchining o‘sishini kuzating va individual yordamni tashkil qiling.':role==='student'?'Yangi bilimlarni egallang, testlarda qatnashing va o‘z rekordingizni yangilang.':'Farzandlaringizning yutuqlari va bilim rivojlanishini kuzating.'}</p><div className="md-button-row"><button className="md13-welcome-btn" onClick={()=>setPage(role==='student'?'students':role==='parent'?'children':role==='teacher'?'assignments':'quarterly')}>{isManager?'Chorak testlarini boshqarish':role==='teacher'?'Test tayinlash':role==='student'?'Testlarimni ochish':'Farzandlarim'} ↗</button><button className="md13-welcome-ghost" onClick={()=>setPage('diagnostics')}>Matematik pasport →</button></div></div><div className="md13-orbit" aria-hidden="true"><span>π</span><span>∑</span><span>√</span><span>△</span><strong>f(x)</strong></div></section>}
+      {page === 'dashboard' && isManager && <section className="v2-home-links" aria-label="Yangi v2 bo‘limlari">
+        <button type="button" onClick={()=>setPage('ai')}><span>✦</span><strong>AI test generatori</strong><small>Avtomatik savol tayyorlash</small></button>
+        <button type="button" onClick={()=>setPage('international')}><span>🌐</span><strong>Xalqaro baholash</strong><small>PISA, TIMSS, PIRLS, TALIS</small></button>
+        <button type="button" onClick={()=>setPage('teacher-tools')}><span>🎓</span><strong>O‘qituvchi yordamchisi</strong><small>O‘yinlar va hujjatlar</small></button>
+        <button type="button" onClick={()=>setPage('help')}><span>🎧</span><strong>Yordam markazi</strong><small>Murojaat va texnik yordam</small></button>
+      </section>}
+      {page === 'dashboard' && isManager && <>
+        <section className="md-dashboard-overview" aria-label="Boshqaruv bo‘limlari">
+          <button type="button" className="md-dashboard-tile" onClick={() => setPage('books')}>
+            <span className="md-dashboard-tile-top"><span className="md-dashboard-tile-icon" aria-hidden="true">▤</span><span className="md-dashboard-tile-arrow" aria-hidden="true">↗</span></span>
+            <span className="md-dashboard-tile-label">DARSLIKLAR</span>
+            <strong>{books.length}</strong>
+            <small>Elektron kutubxona</small>
+          </button>
+          <button type="button" className="md-dashboard-tile" onClick={() => setPage('students')}>
+            <span className="md-dashboard-tile-top"><span className="md-dashboard-tile-icon" aria-hidden="true">♙</span><span className="md-dashboard-tile-arrow" aria-hidden="true">↗</span></span>
+            <span className="md-dashboard-tile-label">O‘QUVCHILAR</span>
+            <strong>{users.filter(u => u.role === 'student').length}</strong>
+            <small>Ro‘yxat va o‘zlashtirish</small>
+          </button>
+          <button type="button" className="md-dashboard-tile" onClick={() => setPage('users')}>
+            <span className="md-dashboard-tile-top"><span className="md-dashboard-tile-icon" aria-hidden="true">♧</span><span className="md-dashboard-tile-arrow" aria-hidden="true">↗</span></span>
+            <span className="md-dashboard-tile-label">FOYDALANUVCHILAR</span>
+            <strong>{users.length}</strong>
+            <small>Administrator, ustoz va ota-onalar</small>
+          </button>
+          <button type="button" className="md-dashboard-tile" onClick={() => setPage('tests')}>
+            <span className="md-dashboard-tile-top"><span className="md-dashboard-tile-icon" aria-hidden="true">☷</span><span className="md-dashboard-tile-arrow" aria-hidden="true">↗</span></span>
+            <span className="md-dashboard-tile-label">TESTLAR</span>
+            <strong>{testSets.length}</strong>
+            <small>{testAttempts.length} ta test natijasi</small>
+          </button>
+        </section>
+        <section className="md-dashboard-mini" aria-label="Qisqa statistika">
+          <button type="button" onClick={() => setPage('schools')}>🏫 <b>{schools.length}</b> maktab</button>
+          <button type="button" onClick={() => setPage('classes')}>▦ <b>{classes.length}</b> sinf</button>
+          <button type="button" onClick={() => setPage('chapters')}>▱ <b>{books.reduce((n,book)=>n+book.chapters.length,0)}</b> bob</button>
+          <button type="button" onClick={() => setPage('questions')}>☷ <b>{questions.length}</b> savol</button>
+        </section>
+        <section className="md-dashboard-panels">
+          <div className="panel md-dashboard-panel">
+            <div className="panel-head"><h2>Tezkor amallar</h2><span className="tag">Boshqarish</span></div>
+            <div className="md-dashboard-actions">
+              <button type="button" onClick={() => setPage('books')}><span aria-hidden="true">▤</span><b>Darsliklarni boshqarish</b><i aria-hidden="true">→</i></button>
+              <button type="button" onClick={() => setPage('chapters')}><span aria-hidden="true">▱</span><b>Bob va mavzular</b><i aria-hidden="true">→</i></button>
+              <button type="button" onClick={() => setPage('students')}><span aria-hidden="true">♙</span><b>O‘quvchilar ro‘yxati</b><i aria-hidden="true">→</i></button>
+              <button type="button" onClick={() => setPage('users')}><span aria-hidden="true">♧</span><b>Foydalanuvchilar</b><i aria-hidden="true">→</i></button>
+              <button type="button" onClick={() => setPage('tests')}><span aria-hidden="true">☷</span><b>Testlarni boshqarish</b><i aria-hidden="true">→</i></button>
+              <button type="button" onClick={() => setPage('quarterly')}><span aria-hidden="true">▦</span><b>Choraklik testlar</b><i aria-hidden="true">→</i></button>
+              {role === 'admin' && <>
+                <button type="button" onClick={() => setPage('settings')}><span aria-hidden="true">⚙</span><b>Admin sozlamalari</b><i aria-hidden="true">→</i></button>
+                <button type="button" onClick={() => setPage('system')}><span aria-hidden="true">◈</span><b>Tizim va zaxira</b><i aria-hidden="true">→</i></button>
+              </>}
+            </div>
+          </div>
+          <div className="panel md-dashboard-panel">
+            <div className="panel-head"><h2>Ish holati va nazorat</h2><span className="tag">Umumiy ko‘rinish</span></div>
+            <div className="md-dashboard-monitor">
+              <div><span className="md-dashboard-monitor-index">01</span><span><b>Maktablar va sinflar</b><small>{schools.length} ta maktab, {classes.length} ta sinf ro‘yxatda</small></span></div>
+              <div><span className="md-dashboard-monitor-index">02</span><span><b>Elektron darsliklar</b><small>{books.length} darslik, {books.reduce((n,book)=>n+book.chapters.length,0)} bob</small></span></div>
+              <div><span className="md-dashboard-monitor-index">03</span><span><b>Test banki</b><small>{questions.length} savol, {testSets.length} test</small></span></div>
+              <div><span className="md-dashboard-monitor-index">04</span><span><b>O‘zlashtirish va hisobot</b><small>{testAttempts.length} saqlangan test natijasi</small></span></div>
+            </div>
+            <div className="md-dashboard-links"><button type="button" className="btn btn-outline" onClick={() => setPage('diagnostics')}>Matematik pasport →</button><button type="button" className="btn btn-outline" onClick={() => setPage('reports')}>Hisobotlar →</button></div>
+          </div>
+        </section>
+      </>}
       {page === 'dashboard' && !isManager && <>
         <section className="stat-grid">
           <div className="stat"><span>KABINET</span><strong className="stat-word">{ROLE_NAMES[role]}</strong><small>{currentUser.name}</small></div>
@@ -1063,7 +1240,7 @@ function App() {
         </section>
         <section className="panel"><h2>{role==='student'?'O‘qishni boshlash':role==='teacher'?'O‘qituvchining ish joyi':'Ota-ona kuzatuvi'}</h2>
           <p>{role==='student'?'Sizga yuborilgan testlarni yeching, darsliklarni oching va natijangizni kuzating.':role==='teacher'?'Bob va testlarni boshqaring, testni sinflarga yuboring, natijalarni ko‘ring.':'Farzandlaringizning matematika bo‘yicha test natijalarini tanlab ko‘ring.'}</p>
-          <div className="md-button-row"><button className="btn btn-primary" onClick={()=>setPage(role==='student'?'students':role==='teacher'?'assignments':'children')}>{role==='student'?'Testlarim':role==='teacher'?'Testlarni tayinlash':'Farzandlarim'} →</button><button className="btn btn-outline" onClick={()=>setPage('reports')}>Hisobotlar →</button><button className="btn btn-outline" onClick={()=>setPage('ranking')}>🏆 Reyting →</button>{role==='student'&&<button className="btn btn-outline" onClick={()=>setPage('practice')}>🧠 Individual mashqlar →</button>}</div>
+          <div className="md-button-row"><button className="btn btn-primary" onClick={()=>setPage(role==='student'?'students':role==='teacher'?'assignments':'children')}>{role==='student'?'Testlarim':role==='teacher'?'Testlarni tayinlash':'Farzandlarim'} →</button><button className="btn btn-outline" onClick={()=>setPage('reports')}>Hisobotlar →</button><button className="btn btn-outline" onClick={()=>setPage('ranking')}>🏆 Reyting →</button>{role==='student'&&<><button className="btn btn-outline" onClick={()=>setPage('practice')}>🧠 Individual mashqlar →</button><button className="btn btn-outline" onClick={()=>setPage('student-assistant')}>✦ AI yordamchi →</button></>}</div>
         </section>
       </>}
       {page === 'books' && (isManager||role==='teacher') && <>
@@ -1120,7 +1297,7 @@ function App() {
            <div className="panel-head"><h2>Bob va mavzular ro‘yxati</h2><span className="tag">{currentBook?.chapters.length ?? 0} bob</span></div>
            <label className="field-label">Darslik{bookSelect}</label>
            {currentBook?.chapters.length ? <div className="chapters">{currentBook.chapters.map((c,i) =>
-             <button key={c.id} className={'chapter-row ' + (currentChapter?.id === c.id ? 'selected' : '')} onClick={()=>{setSelectedChapter(c.id);setStartPage('');setEndPage('')}}>
+             <button key={c.id} className={'chapter-row ' + (currentChapter?.id === c.id ? 'selected' : '')} onClick={()=>{setSelectedChapter(c.id);setStartPage('');setEndPage('');setEditingTopicIndex(null)}}>
                <strong>{i+1}-bob. {c.title}</strong>
                <small>{c.topics.length} ta mavzu · {c.startPage && c.endPage ? `${c.startPage}–${c.endPage}-sahifalar` : 'Sahifalar belgilanmagan'}</small>
              </button>)}</div> : <p className="hint">Boblar yo‘q. O‘ng tomondagi shakl orqali qo‘shing.</p>}
@@ -1135,12 +1312,28 @@ function App() {
            <hr/>
            {currentChapter && <>
              <h3>Tanlangan bob: {currentChapter.title}</h3>
+             <form className="form md21-editor-form" onSubmit={renameChapter}>
+               <label>Bob nomini tahrirlash<input key={`${currentChapter.id}-${currentChapter.title}`} name="chapterTitle" required defaultValue={currentChapter.title} maxLength={180}/></label>
+               <div className="md-button-row"><button className="btn btn-outline" type="submit">✎ Bob nomini saqlash</button>
+                 <button className="btn md-btn-danger" type="button" onClick={deleteChapter}>Bo‘sh bobni o‘chirish</button></div>
+             </form>
              <p className="hint">Sahifalar: {currentChapter.startPage && currentChapter.endPage ? `${currentChapter.startPage}–${currentChapter.endPage}` : 'Belgilanmagan'}. Raqamlar PDF fayl sahifalariga tegishli (kitobdagi bosma raqam boshqa bo‘lishi mumkin).</p>
              <form className="form" onSubmit={updateChapterPages}>
                <div className="option-grid"><label>Boshlanish sahifasi<input required type="number" min="1" value={startPage} onChange={e=>setStartPage(e.target.value)} placeholder={String(currentChapter.startPage ?? '1')}/></label><label>Tugash sahifasi<input required type="number" min="1" value={endPage} onChange={e=>setEndPage(e.target.value)} placeholder={String(currentChapter.endPage ?? '20')}/></label></div>
                <button className="btn btn-outline" type="submit">Sahifalarni yangilash</button>
              </form>
-             <h3>Mavzular</h3><ul className="topic-list">{currentChapter.topics.map((t,i)=><li key={i}>{t}</li>)}</ul>
+             <h3>Mavzular</h3>
+             {currentChapter.topics.length===0&&<p className="hint">Bu bobda mavzu hali yo‘q.</p>}
+             <ul className="topic-list md21-topics">{currentChapter.topics.map((t,i)=><li key={`${currentChapter.id}-${i}`}>
+               {editingTopicIndex===i?<form className="md21-topic-edit" onSubmit={e=>renameTopic(e,i)}>
+                 <input aria-label="Mavzu nomi" value={editingTopicName} maxLength={180} required onChange={e=>setEditingTopicName(e.target.value)}/>
+                 <button className="btn btn-primary" type="submit">Saqlash</button>
+                 <button className="btn btn-outline" type="button" onClick={()=>setEditingTopicIndex(null)}>Bekor</button>
+               </form>:<div className="md21-topic-row"><span>{i+1}. {t}</span><div className="md21-topic-actions">
+                 <button type="button" className="btn btn-outline" onClick={()=>{setEditingTopicIndex(i);setEditingTopicName(t)}}>Tahrirlash</button>
+                 <button type="button" className="btn md-btn-danger" onClick={()=>deleteTopic(i)}>O‘chirish</button>
+               </div></div>}
+             </li>)}</ul>
              <form onSubmit={addTopic} className="form"><label>Yangi mavzu<input value={newTopic} onChange={e=>setNewTopic(e.target.value)} required placeholder="Mavzu nomi"/></label><button className="btn btn-outline">+ Mavzu qo‘shish</button></form>
              <button type="button" className="btn btn-outline" style={{marginTop:12}} onClick={()=>{setPage('questions');setTopicForQuestion('')}}>+ Shu bobga test tuzish →</button>
            </>}
@@ -1326,8 +1519,20 @@ function App() {
       </section>}
       {page === 'students' && (isManager||role==='teacher') && <section className="panel">
         <div className="panel-head"><h2>O‘quvchilar ro‘yxati va o‘zlashtirish</h2><span className="tag">{users.filter(u=>u.role==='student'&&(isManager||myClassIds.includes(u.classId||-1))).length} nafar</span></div>
-        <p className="hint">Admin barcha demo sinflarini, o‘qituvchi esa faqat biriktirilgan sinflarini ko‘radi. O‘quvchi profillari «Foydalanuvchilar» bo‘limida boshqariladi.</p>
-        {classes.filter(c=>isManager||myClassIds.includes(c.id)).map(c=><div key={c.id} className="md-v08-list"><strong>{c.name} · {c.grade}-sinf</strong>
+        <p className="hint">Maktab va sinf bo‘yicha tanlang. O‘qituvchi faqat o‘ziga biriktirilgan sinflarni ko‘radi. O‘quvchi profillari «Foydalanuvchilar» bo‘limida boshqariladi.</p>
+        <div className="md21-filters">
+          <label>Maktab<select value={studentSchoolFilter} onChange={e=>{setStudentSchoolFilter(Number(e.target.value));setStudentClassFilter(0)}}>
+            <option value={0}>Barcha maktablar</option>
+            {schools.filter(s=>isManager||classes.some(c=>c.schoolId===s.id&&myClassIds.includes(c.id))).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+          </select></label>
+          <label>Sinf<select value={studentClassFilter} onChange={e=>setStudentClassFilter(Number(e.target.value))}>
+            <option value={0}>Barcha sinflar</option>
+            {classes.filter(c=>(isManager||myClassIds.includes(c.id))&&(!studentSchoolFilter||c.schoolId===studentSchoolFilter)).map(c=><option key={c.id} value={c.id}>{c.name} · {c.grade}-sinf</option>)}
+          </select></label>
+          <span className="md21-filter-total">{users.filter(u=>u.role==='student'&&studentVisibleClasses.some(c=>c.id===u.classId)).length} nafar o‘quvchi</span>
+        </div>
+        {studentVisibleClasses.length===0&&<div className="empty">Bu tanlov bo‘yicha sinf topilmadi.</div>}
+        {studentVisibleClasses.map(c=><div key={c.id} className="md-v08-list"><strong>{c.name} · {c.grade}-sinf</strong>
           {users.filter(u=>u.role==='student'&&u.classId===c.id).length===0?<small>Bu sinfda hali o‘quvchi yo‘q.</small>:users.filter(u=>u.role==='student'&&u.classId===c.id).map(u=>{
             const attempts=testAttempts.filter(a=>a.studentId===u.id)
             const avg=attempts.length?Math.round(attempts.reduce((sum,a)=>sum+a.score/Math.max(1,a.total),0)/attempts.length*100):null
@@ -1404,8 +1609,14 @@ function App() {
         </section>
       </div>}
       {page === 'users' && isManager && <div className="two-cols">
-        <section className="panel"><h2>Foydalanuvchilar · {users.length} ta</h2><div className="md-v08-scroll">{users.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {u.verified===false&&<span className="md17-pending-tag">Tasdiq kutilmoqda</span>} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row">{['student','parent'].includes(u.role)&&<button className="btn btn-outline" onClick={()=>void toggleVerified(u)}>{u.verified===false?'✓ Tasdiqlash':'Tasdiqni bekor qilish'}</button>}<button className="btn btn-outline" disabled={u.role==='admin'&&u.id!==currentUser.id||u.role==='assistant_admin'&&role!=='admin'} onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id||!u.active} onClick={()=>void deleteUser(u)}>O‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
-        <section className="panel"><h2>{editingUserId===null?'Yangi foydalanuvchi':'Profilni tahrirlash'}</h2><form className="form" onSubmit={addOrEditUser}><label>Ism / profil nomi<input value={newUserName} required onChange={e=>setNewUserName(e.target.value)}/></label>{editingUserId===null&&<><label>Yangi login<input value={newUserUsername} required minLength={3} maxLength={32} placeholder="Masalan: ustoz2026" onChange={e=>setNewUserUsername(e.target.value)}/></label><label>Vaqtinchalik parol<input type="password" value={newUserPassword} minLength={8} required placeholder="Kamida 8 belgi" onChange={e=>setNewUserPassword(e.target.value)}/></label></>}<label>Rol<select value={newUserRole} onChange={e=>setNewUserRole(e.target.value as DemoRole)}>{role==='admin'&&<option value="assistant_admin">Yordamchi admin</option>}<option value="teacher">O‘qituvchi</option><option value="student">O‘quvchi</option><option value="parent">Ota-ona</option></select></label>{newUserRole==='student'&&<label>Sinf<select value={newUserClassId} onChange={e=>setNewUserClassId(Number(e.target.value))}>{classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}{newUserRole==='teacher'&&<div><strong>O‘qituvchiga biriktiriladigan sinflar</strong>{classes.map(c=><label key={c.id} className="md-v08-check"><input type="checkbox" checked={newTeacherClassIds.includes(c.id)} onChange={e=>setNewTeacherClassIds(old=>e.target.checked?[...old,c.id]:old.filter(id=>id!==c.id))}/>{c.name}</label>)}</div>}{newUserRole==='parent'&&<div><strong>Farzandlarni tanlash (bir nechtasi mumkin)</strong>{users.filter(u=>u.role==='student').map(u=><label key={u.id} className="md-v08-check"><input type="checkbox" checked={newParentChildIds.includes(u.id)} onChange={e=>setNewParentChildIds(old=>e.target.checked?[...old,u.id]:old.filter(id=>id!==u.id))}/>{u.name}</label>)}</div>}{editingUserId!==null&&<label>Yangi parol (ixtiyoriy, kamida 8 belgi)<input type="password" minLength={8} value={userResetPassword} onChange={e=>setUserResetPassword(e.target.value)} placeholder="Parolni o‘zgartirmaslik uchun bo‘sh qoldiring"/></label>}<div className="md-button-row"><button className="btn btn-primary">Saqlash</button>{editingUserId!==null&&<button type="button" className="btn btn-outline" onClick={()=>{setEditingUserId(null);setNewUserName('')}}>Bekor qilish</button>}</div></form><p className="hint">Yangi foydalanuvchi login va parol bilan kiradi. Parollar Neon PostgreSQL bazasida xesh shaklida saqlanadi. Ota-ona va farzand aloqasini administrator belgilaydi.</p></section>
+        <section className="panel"><h2>Foydalanuvchilar · {users.length} ta</h2>
+          <div className="md21-role-tabs" aria-label="Foydalanuvchi rollari">
+            {userRoleOptions.filter(opt=>role==='admin'||opt.id!=='admin'&&opt.id!=='assistant_admin').map(opt=><button key={opt.id} type="button" aria-pressed={userRoleFilter===opt.id} className={'md21-role-pill '+(userRoleFilter===opt.id?'selected':'')} onClick={()=>setUserRoleFilter(opt.id)}>{opt.label} <b>{opt.id==='all'?users.length:users.filter(u=>u.role===opt.id).length}</b></button>)}
+          </div>
+          <label className="md21-search">🔎 Qidirish<input type="search" value={userSearch} onChange={e=>setUserSearch(e.target.value)} placeholder="Ism, login, sinf yoki rol"/></label>
+          <p className="hint">Ko‘rsatilmoqda: {filteredUsers.length} ta · Ro‘yxatni rol bo‘yicha ajratish ma’lumotlarni o‘chirmaydi.</p>
+          <div className="md-v08-scroll">{filteredUsers.length===0&&<div className="empty">Tanlangan rol yoki qidiruv bo‘yicha foydalanuvchi topilmadi.</div>}{filteredUsers.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {u.verified===false&&<span className="md17-pending-tag">Tasdiq kutilmoqda</span>} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row">{['student','parent'].includes(u.role)&&<button className="btn btn-outline" onClick={()=>void toggleVerified(u)}>{u.verified===false?'✓ Tasdiqlash':'Tasdiqni bekor qilish'}</button>}<button className="btn btn-outline" disabled={u.role==='admin'&&u.id!==currentUser.id||u.role==='assistant_admin'&&role!=='admin'} onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id||!u.active} onClick={()=>void deleteUser(u)}>O‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
+        <section className="panel"><h2>{editingUserId===null?'Yangi foydalanuvchi':'Profilni tahrirlash'}</h2><form className="form" onSubmit={addOrEditUser}><label>Ism / profil nomi<input value={newUserName} required onChange={e=>setNewUserName(e.target.value)}/></label>{editingUserId===null&&<><label>Yangi login<input value={newUserUsername} required minLength={3} maxLength={32} placeholder="Masalan: ustoz2026" onChange={e=>setNewUserUsername(e.target.value)}/></label><label>Vaqtinchalik parol<input type="password" value={newUserPassword} minLength={8} required placeholder="Kamida 8 belgi" onChange={e=>setNewUserPassword(e.target.value)}/></label></>}<label>Rol<select value={newUserRole} onChange={e=>setNewUserRole(e.target.value as DemoRole)}>{role==='admin'&&<option value="assistant_admin">Yordamchi admin</option>}<option value="teacher">O‘qituvchi</option><option value="student">O‘quvchi</option><option value="parent">Ota-ona</option></select></label>{newUserRole==='student'&&<label>Sinf<select value={newUserClassId} onChange={e=>setNewUserClassId(Number(e.target.value))}>{classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}{newUserRole==='teacher'&&<div><strong>O‘qituvchiga biriktiriladigan sinflar</strong>{classes.map(c=><label key={c.id} className="md-v08-check"><input type="checkbox" checked={newTeacherClassIds.includes(c.id)} onChange={e=>setNewTeacherClassIds(old=>e.target.checked?[...old,c.id]:old.filter(id=>id!==c.id))}/>{c.name}</label>)}</div>}{newUserRole==='parent'&&<ParentChildPicker key={editingUserId??'new'} schools={schools} classes={classes} users={users} value={newParentChildIds} onChange={setNewParentChildIds}/> }{editingUserId!==null&&<label>Yangi parol (ixtiyoriy, kamida 8 belgi)<input type="password" minLength={8} value={userResetPassword} onChange={e=>setUserResetPassword(e.target.value)} placeholder="Parolni o‘zgartirmaslik uchun bo‘sh qoldiring"/></label>}<div className="md-button-row"><button className="btn btn-primary">Saqlash</button>{editingUserId!==null&&<button type="button" className="btn btn-outline" onClick={()=>{setEditingUserId(null);setNewUserName('')}}>Bekor qilish</button>}</div></form><p className="hint">Yangi foydalanuvchi login va parol bilan kiradi. Parollar Neon PostgreSQL bazasida xesh shaklida saqlanadi. Ota-ona va farzand aloqasini administrator belgilaydi.</p></section>
       </div>}
       {page === 'assignments' && (isManager||role==='teacher') && <div className="two-cols">
         <section className="panel"><h2>Testni sinfga yuborish</h2><form className="form" onSubmit={assignTest}><label>Test<select value={assignmentTestId} onChange={e=>setAssignmentTestId(Number(e.target.value))}><option value={0}>Testni tanlang</option>{testSets.filter(t=>t.active).map(t=><option key={t.id} value={t.id}>{t.title} ({books.find(b=>b.id===t.bookId)?.grade}-sinf)</option>)}</select></label><label>Sinf<select value={assignmentClassId} onChange={e=>setAssignmentClassId(Number(e.target.value))}>{classes.filter(c=>isManager||myClassIds.includes(c.id)).map(c=><option key={c.id} value={c.id}>{c.name} ({c.grade}-sinf)</option>)}</select></label><p className="hint">Faqat faol test yuboriladi. Test darsligi darajasi tanlangan sinf bilan mos bo‘lishi kerak.</p><button className="btn btn-primary" disabled={!assignmentTestId}>⇢ Testni sinfga yuborish</button></form></section>

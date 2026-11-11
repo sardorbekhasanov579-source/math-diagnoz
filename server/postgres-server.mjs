@@ -3,6 +3,7 @@
 // This HTTP pilot is ONLY for a trusted PRIVATE school LAN, not the public Internet.
 // HTTPS, external audit and production-grade security are still required for public use.
 import { createServer } from 'node:http'
+import { initV2Schema, handleV2 } from './v2-module.mjs'
 import { get, all, run, initSchema, ensureSchool, backupTables, filePut, fileGet } from './postgres-db.mjs'
 import { createGzip } from 'node:zlib'
 import { randomBytes, scryptSync, createHash, timingSafeEqual } from 'node:crypto'
@@ -45,6 +46,7 @@ function serveBuiltSite(req,res,pathname){
 const backupDir = resolve(root,'backups')
 // PostgreSQL and media blobs are durable in Neon, not on Render's ephemeral disk.
 await initSchema()
+await initV2Schema()
 const defaultSchool = await ensureSchool()
 const hash = x=>createHash('sha256').update(x).digest('hex')
 const passHash=(p,s)=>scryptSync(p,s,64).toString('hex')
@@ -237,6 +239,7 @@ const server=createServer(async(req,res)=>{
     const actor=await auth(req)
     if(path==='/api/auth/me'&&method==='GET')return send(res,200,{user:safeUser(actor)})
     if(!actor)return fail(res,401,'Avval tizimga kiring')
+    if(await handleV2({path,method,url,req,res,actor}))return
     // PDF and image bytes persist as PostgreSQL bytea (pilot quota 200 MB).
     if(path==='/api/assets/pdf'&&method==='POST'||path==='/api/assets/image'&&method==='POST'){
       if(!isOperator(actor)&&actor.role!=='teacher')return fail(res,403,'Yuklashga ruxsat yo‘q')
@@ -264,7 +267,7 @@ const server=createServer(async(req,res)=>{
     if(path==='/api/system/health'&&method==='GET'){
       if(!isSuper(actor))return fail(res,403,'Faqat super-admin')
       const total=(await get('SELECT COUNT(*) n FROM assets')).n
-      return send(res,200,{version:'1.6.0',mode:'neon-render-pilot',users:(await get('SELECT COUNT(*) n FROM users WHERE active=1')).n,schools:(await get('SELECT COUNT(*) n FROM schools')).n,classes:(await get('SELECT COUNT(*) n FROM classes')).n,results:(await get('SELECT COUNT(*) n FROM results')).n,files:total,fileBytes:(await get('SELECT COALESCE(SUM(bytes),0) n FROM assets')).n,lastBackup:'Qo‘lda eksport yuklab oling'})
+      return send(res,200,{version:'2.0.0',mode:'neon-render-pilot',users:(await get('SELECT COUNT(*) n FROM users WHERE active=1')).n,schools:(await get('SELECT COUNT(*) n FROM schools')).n,classes:(await get('SELECT COUNT(*) n FROM classes')).n,results:(await get('SELECT COUNT(*) n FROM results')).n,files:total,fileBytes:(await get('SELECT COALESCE(SUM(bytes),0) n FROM assets')).n,lastBackup:'Qo‘lda eksport yuklab oling'})
     }
     if(path==='/api/system/activity'&&method==='GET'){
       if(!isSuper(actor))return fail(res,403,'Faqat super-admin')
@@ -285,8 +288,8 @@ const server=createServer(async(req,res)=>{
       })
       const gz=createGzip({level:6});gz.pipe(res)
       try{
-        gz.write(JSON.stringify({format:'math-diagnoz-1.6-export',createdAt:new Date().toISOString()}).slice(0,-1)+',"tables":{')
-        const tables=['users','sessions','schools','classes','app_state','exams','results','assets','audit','practice_attempts','asset_blobs']
+        gz.write(JSON.stringify({format:'math-diagnoz-2.0-export',createdAt:new Date().toISOString()}).slice(0,-1)+',"tables":{')
+        const tables=['users','sessions','schools','classes','app_state','exams','results','assets','audit','practice_attempts','asset_blobs','v2_support_tickets','v2_assessment_results','v2_assessment_questions']
         for(let i=0;i<tables.length;i++){
           const table=tables[i];const records=await backupTables(table)
           if(i)gz.write(',')

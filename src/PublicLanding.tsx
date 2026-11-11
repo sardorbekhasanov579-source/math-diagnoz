@@ -14,6 +14,8 @@ const features = [
   { icon: '🧠', title: 'Bilim diagnostikasi', text: 'Xatolar mavzular bo‘yicha aniqlanadi va izohlanadi.' },
   { icon: '🎯', title: 'Individual mashqlar', text: 'O‘quvchining natijasiga mos mustahkamlash topshiriqlari.' },
   { icon: '🏆', title: 'Rivojlanish va reyting', text: 'O‘zlashtirish dinamikasi, sinf reytingi va shaxsiy natijalar.' },
+  { icon: '🌍', title: 'Xalqaro baholashga tayyorgarlik', text: 'PISA, TIMSS, PIRLS va TALIS uslubidagi ikki bosqichli mashqlar.' },
+  { icon: '✦', title: 'AI va yordamchilar', text: 'API kaliti sozlanganda savollar, dars materiallari va maslahatlar; murojaatlar markazi.' },
 ]
 const steps = [
   { icon: '🔍', n: '01', title: 'Aniqla', desc: 'Mavzu yoki chorak bo‘yicha testdan o‘ting.' },
@@ -47,7 +49,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
   return <div className="md14-site" id="top">
     <header className="md14-header">
       <a href="#top" className="md14-brand" aria-label="MATH-DIAGNOZ bosh sahifa">
-        <span className="md14-brand-icon">M<span>✦</span></span><span><b>MATH-DIAGNOZ</b><small>Raqamli matematika platformasi</small></span>
+        <span className="md14-brand-icon">M<span>✦</span></span><span><b>MATH-DIAGNOZ</b><small>Raqamli matematika · v2.0</small></span>
       </a>
       <nav aria-label="Bosh sahifa menyusi"><a href="#imkoniyatlar">Imkoniyatlar</a><a href="#qanday-ishlaydi">Qanday ishlaydi?</a><a href="#sinflar">Sinflar</a></nav>
       <div className="md14-nav-actions"><button className="md14-link-btn" onClick={enter}>{loggedIn ? 'Kabinetga qaytish' : 'Kirish'}</button>{!loggedIn && <button className="md14-nav-signup" onClick={onRegister}>{'Ro‘yxatdan o‘tish'} <span>↗</span></button>}</div>
@@ -60,7 +62,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
           <div className="md14-copy">
             <div className="md14-eyebrow"><span/> {schoolMode?`🏫 ${schoolName} · MAKTAB PILOTI`:'5–9-SINFLAR UCHUN ZAMONAVIY TA’LIM'}</div>
             <h1>Matematikani <em>tushuning.</em><br/>Bilimingizni <strong>rivojlantiring.</strong></h1>
-            <p>Bilimdagi bo‘shliqni aniqlaymiz, yechimini topamiz. Darsliklar, diagnostik testlar, individual mashqlar va natijalar — yagona platformada.</p>
+            <p>Darsliklar, test va diagnostika, xalqaro baholashga tayyorgarlik, AI yordamchilari va matematik pasport — yagona platformada.</p>
             <div className="md14-hero-buttons"><button className="md14-primary" onClick={loggedIn ? onDashboard : onRegister}> {loggedIn ? 'Kabinetimga o‘tish' : 'Bepul ro‘yxatdan o‘tish'} <span>→</span></button><button className="md14-secondary" onClick={() => {setShowExample(v=>!v); setExampleAnswer(null)}}>{showExample?'Mini-testni yashirish':'Mini-testni sinash'} <span>▶</span></button></div>
             {showExample && <div className="md14-quiz" aria-live="polite"><b>🧠 Mini-test: 3x + 6 = 15. x nechaga teng?</b><div>{[2,3,4].map(n => <button key={n} onClick={()=>setExampleAnswer(n)} className={exampleAnswer===n?'active':''}>{n}</button>)}</div><p>{exampleAnswer===null?'Javobingizni tanlang':exampleAnswer===3?'🎉 To‘g‘ri! x = 3.':'💡 Avval 6 ni ayirib, natijani 3 ga bo‘ling.'}</p></div>}
             <div className="md14-proof"><span>😊</span><span>🤓</span><span>🥳</span><div><b>Har bir o‘quvchi — alohida imkoniyat</b><small>O‘rganing · Sinang · Rivojlaning</small></div></div>
