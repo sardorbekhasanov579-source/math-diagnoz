@@ -1,3 +1,4 @@
+import { assignmentStartMs, platformDateMs, summarizeAssignments } from './assignment-monitor.mjs'
 // MATH-DIAGNOZ v1.4 — ONE SCHOOL / INTRANET PILOT SERVER (Node 22.13+)
 // Default server binds to 127.0.0.1. School launcher opts in to local-network access.
 // This HTTP pilot is ONLY for a trusted PRIVATE school LAN, not the public Internet.
@@ -174,9 +175,10 @@ function verifyExam(test,user){
    const gated=(state('quarterGates')||[]).some(g=>g.grade===grade&&g.quarter===(test.quarter||1)&&g.enabled)
    if(!book||book.grade!==grade||!gated)throw new Error('Bu sinf uchun choraklik test hali ochilmagan')
  }
- const now=Date.now();if(test.availableFrom&&now<new Date(test.availableFrom).getTime()||test.availableUntil&&now>=new Date(test.availableUntil).getTime())throw new Error('Test uchun belgilangan vaqt kelmagan yoki tugagan')
- const assigned=(state('assignments')||[]).some(a=>a.testId===test.id&&a.classId===user.class_id)
+ const now=Date.now();if(test.availableFrom&&now<platformDateMs(test.availableFrom)||test.availableUntil&&now>=platformDateMs(test.availableUntil))throw new Error('Test uchun belgilangan vaqt kelmagan yoki tugagan')
+ const assigned=(state('assignments')||[]).find(a=>a.testId===test.id&&a.classId===user.class_id)
  if(!assigned)throw new Error('Test sinfingizga tayinlanmagan')
+ if(now < assignmentStartMs(assigned,test))throw new Error('Test boshlanish vaqti hali kelmagan')
  const attempted=get('SELECT COUNT(*) AS n FROM results WHERE user_id=? AND test_id=?',user.id,test.id).n
  const s=state('adminSettings')||{};if(attempted >= (test.attemptLimit??s.maxAttempts??3))throw new Error('Urinish limiti tugagan')
 }
@@ -482,6 +484,15 @@ const server=createServer(async(req,res)=>{
       }
       store(k,d.value);audit(actor,'state.update',k);return send(res,200,{ok:true})
     }
+    if(path==='/api/assignments/status'&&method==='GET'){
+      if(!['admin','assistant_admin','teacher'].includes(actor.role))return fail(res,403,'Faqat administrator va o‘qituvchi')
+      const allowed=actor.role==='teacher' ? new Set(all('SELECT id FROM classes WHERE teacher_id=?',actor.id).map(c=>Number(c.id))) : null
+      const assigned=(state('assignments')||[]).filter(a=>!allowed||allowed.has(Number(a.classId)))
+      return send(res,200,{rows:summarizeAssignments(assigned,state('testSets')||[],
+        all("SELECT id,name,class_id AS classId FROM users WHERE role='student' AND active=1 AND verified=1"),
+        all('SELECT user_id,test_id,started_at,deadline_at,status FROM exams'),
+        all('SELECT user_id,test_id,data FROM results'))})
+    }
     if(path==='/api/exams/current'&&method==='GET'){
       const ex=get("SELECT * FROM exams WHERE user_id=? AND status='running' ORDER BY started_at DESC LIMIT 1",actor.id)
       return send(res,200,{exam:ex?{id:ex.id,testId:ex.test_id,startedAt:ex.started_at,deadlineAt:ex.deadline_at,answers:JSON.parse(ex.answers)}:null})
@@ -493,7 +504,7 @@ const server=createServer(async(req,res)=>{
       const active=get("SELECT id FROM exams WHERE user_id=? AND status='running'",actor.id)
       if(active)return fail(res,409,'Boshlangan testingiz bor')
       const duration=(test.durationMinutes??state('adminSettings')?.durationMinutes??20)*60000
-      const start=Date.now(),deadline=Math.min(start+duration,test.availableUntil?new Date(test.availableUntil).getTime():Infinity),id=randomBytes(18).toString('hex')
+      const start=Date.now(),deadline=Math.min(start+duration,test.availableUntil?platformDateMs(test.availableUntil):Infinity),id=randomBytes(18).toString('hex')
       run('INSERT INTO exams(id,user_id,test_id,started_at,deadline_at) VALUES(?,?,?,?,?)',id,actor.id,test.id,start,deadline)
       audit(actor,'exam.start',test.title);return send(res,201,{exam:{id,testId:test.id,startedAt:start,deadlineAt:deadline,answers:{}}})
     }

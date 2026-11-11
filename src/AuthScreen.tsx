@@ -121,6 +121,6 @@ export default function AuthScreen({onAuth,booksCount,questionCount,onBack,initi
      <section className="md-authsite-how" id="qanday"><div className="md-authsite-title"><span>TO‘RT BOSQICH</span><h2>Natijaga olib boradigan yo‘l</h2></div><div className="md-authsite-how-steps">{[['🔍','01','Aniqla','Bilimingizni diagnostika qiling'],['🧠','02','Tushuntir','Xato sabablarini o‘rganing'],['🚀','03','Rivojlantir','Individual mashqlar ishlang'],['🏆','04','Qayta o‘lcha','O‘sishingizni kuzating']].map(([emoji,no,t,d])=><div key={no}><span>{emoji}</span><small>{no}</small><b>{t}</b><p>{d}</p></div>)}</div></section>
      <section className="md-authsite-ranking" id="reyting"><span>🏆 MATEMATIK YUTUQLAR</span><h2>Har bir yutuq — keyingi cho‘qqiga qadam</h2><p>Shaxsiy kabinetingizda sinf va 5–9-sinflar bo‘yicha reytinglarni ko‘ring. Boshqalarning natijalari shaxsiylikni saqlagan holda ko‘rsatiladi.</p><button onClick={()=>goToAuth('register')}>Reytingda qatnashish →</button></section>
    </main>
-   <footer className="md-authsite-footer"><strong>✦ MATH-DIAGNOZ</strong><span>Matematika diagnostikasi · Mahalliy pilot versiya · Rasmiy davlat tizimi emas</span></footer>
+   <footer className="md-authsite-footer"><strong>✦ MATH-DIAGNOZ</strong><span>Muallif: Xolmurodova Shaxnoza Zayirovna · Mustaqil ta’lim platformasi</span></footer>
  </div>
 }

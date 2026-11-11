@@ -5,10 +5,11 @@ import PublicLanding from './PublicLanding'
 import PracticePanel from './PracticePanel'
 import V2Modules from './V2Modules'
 import ParentChildPicker from './ParentChildPicker'
+import TeacherParentLinks from './TeacherParentLinks'
 import AssessmentReport from './AssessmentReport'
 import './App.css'
 
-type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice' | 'admins' | 'ai' | 'international' | 'teacher-tools' | 'student-assistant' | 'help'
+type Page = 'schools' | 'diagnostics' | 'dashboard' | 'books' | 'chapters' | 'questions' | 'tests' | 'students' | 'reports' | 'settings' | 'classes' | 'users' | 'assignments' | 'library' | 'children' | 'ranking' | 'quarterly' | 'system' | 'practice' | 'admins' | 'ai' | 'international' | 'teacher-tools' | 'student-assistant' | 'help' | 'parent-links'
 type Chapter = { id: number; title: string; topics: string[]; startPage?: number; endPage?: number }
 type Book = { id: number; title: string; grade: number; author: string; chapters: Chapter[]; pdfKey?: string; pdfName?: string }
 type Question = { id: number; bookId: number; chapterId: number; topic?: string; text: string; options: string[]; correct: number; imageKeys?: string[]; optionImageKeys?: string[][] }
@@ -26,19 +27,43 @@ type School = { id:number; name:string; region:string; district:string; code:str
 type QuarterGate = {grade: number; quarter: number; enabled: boolean}
 type SchoolClass = { id: number; name: string; grade: number; teacherId?: number | null; schoolId?: number }
 type DemoUser = { id: number; name: string; role: DemoRole; username?: string; classId?: number; childIds?: number[]; active: boolean; verified?: boolean; lastLoginAt?: number | null }
-type Assignment = { id: number; testId: number; classId: number; createdAt: string }
+type Assignment = { id: number; testId: number; classId: number; createdAt: string; startAt?: string }
+type AssignmentStudentStatus = {id:number; name:string; status:'scheduled'|'pending'|'running'|'finished'|'expired'|'closed'; attempts:number; score:number|null; total:number|null; finishedAt:string|null; startedAt:number|null}
+type AssignmentStatus = {id:number;testId:number;classId:number;startAt:string|null;endAt:string|null;total:number;finished:number;running:number;waiting:number;expired:number;students:AssignmentStudentStatus[]}
+function scheduledStart(assignment:Assignment|undefined, test:TestSet):number{
+  const values=[assignment?.createdAt,assignment?.startAt,test.availableFrom].filter(Boolean).map(v=>Date.parse(v!)).filter(Number.isFinite)
+  if(!values.length&&assignment?.createdAt)values.push(Date.parse(assignment.createdAt))
+  return values.length?Math.max(...values):0
+}
+function localDatetimeInput(value:string|undefined):string{
+  if(!value)return ''
+  const date=new Date(value)
+  if(!Number.isFinite(date.getTime()))return ''
+  const local=new Date(date.getTime()-date.getTimezoneOffset()*60000)
+  return local.toISOString().slice(0,16)
+}
+function dateInputToIso(value:string):string|undefined{
+  if(!value)return undefined
+  const date=new Date(value)
+  return Number.isFinite(date.getTime())?date.toISOString():undefined
+}
+function displayDateTime(value:string|number|null|undefined):string{
+  if(value===undefined||value===null||value==='')return 'Belgilanmagan'
+  const date=new Date(value)
+  return Number.isFinite(date.getTime())?date.toLocaleString('uz-UZ',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'Belgilanmagan'
+}
 const DEMO_CLASSES: SchoolClass[] = [
   {id:101,name:'5-A',grade:5,teacherId:2},
   {id:102,name:'7-A',grade:7,teacherId:2},
   {id:103,name:'9-A',grade:9,teacherId:2},
 ]
 const DEMO_USERS: DemoUser[] = [
-  {id:1,name:'Administrator (demo)',role:'admin',active:true},
-  {id:2,name:'O‘qituvchi (demo)',role:'teacher',active:true},
-  {id:3,name:'O‘quvchi 1 (demo)',role:'student',classId:101,active:true},
-  {id:4,name:'O‘quvchi 2 (demo)',role:'student',classId:102,active:true},
-  {id:5,name:'O‘quvchi 3 (demo)',role:'student',classId:101,active:true},
-  {id:6,name:'Ota-ona (demo)',role:'parent',childIds:[3,5],active:true},
+  {id:1,name:'Administrator (namuna)',role:'admin',active:true},
+  {id:2,name:'O‘qituvchi (namuna)',role:'teacher',active:true},
+  {id:3,name:'O‘quvchi 1 (namuna)',role:'student',classId:101,active:true},
+  {id:4,name:'O‘quvchi 2 (namuna)',role:'student',classId:102,active:true},
+  {id:5,name:'O‘quvchi 3 (namuna)',role:'student',classId:101,active:true},
+  {id:6,name:'Ota-ona (namuna)',role:'parent',childIds:[3,5],active:true},
 ]
 const ROLE_NAMES: Record<DemoRole,string> = {admin:'Super-admin',assistant_admin:'Yordamchi admin',teacher:'O‘qituvchi',student:'O‘quvchi',parent:'Ota-ona'}
 const CLASS_KEY = 'math-diagnoz-classes-v08'
@@ -252,6 +277,7 @@ const nav: { id: Page; label: string; icon: string }[] = [
   { id: 'classes', label: 'Maktab sinflari', icon: '▦' },
   { id: 'diagnostics', label: 'Matematik diagnostika', icon: '◉' },
   { id: 'users', label: 'Foydalanuvchilar', icon: '♧' },
+  { id: 'parent-links', label: 'Ota-onani biriktirish', icon: '♧' },
   { id: 'admins', label: 'Super-admin va yordamchilar', icon: '♛' },
   { id: 'assignments', label: 'Testni sinfga yuborish', icon: '⇢' },
   { id: 'library', label: 'Darsliklarni o‘qish', icon: '▤' },
@@ -266,7 +292,7 @@ const nav: { id: Page; label: string; icon: string }[] = [
 
 const NAV_GROUPS: {title:string;icon:string;ids:Page[]}[] = [
   {title:'Bosh sahifa',icon:'⌂',ids:['dashboard']},
-  {title:'Maktab boshqaruvi',icon:'🏫',ids:['schools','classes','students','users','admins']},
+  {title:'Maktab boshqaruvi',icon:'🏫',ids:['schools','classes','students','users','parent-links','admins']},
   {title:'Ta’lim materiallari',icon:'▤',ids:['books','chapters','library']},
   {title:'Test va diagnostika',icon:'☑',ids:['questions','tests','quarterly','assignments','diagnostics','reports','ranking','practice']},
   {title:'Xalqaro baholash',icon:'🌐',ids:['international']},
@@ -383,6 +409,12 @@ function App() {
   const [editingUserId, setEditingUserId] = useState<number | null>(null)
   const [assignmentTestId, setAssignmentTestId] = useState(0)
   const [assignmentClassId, setAssignmentClassId] = useState(0)
+  const [assignmentStartInput,setAssignmentStartInput] = useState('')
+  const [expandedAssignment,setExpandedAssignment] = useState<number|null>(null)
+  const [previewAssignmentQuestions,setPreviewAssignmentQuestions] = useState(false)
+  const [assignmentStatuses,setAssignmentStatuses] = useState<AssignmentStatus[]>([])
+  const [assignmentStatusError,setAssignmentStatusError] = useState('')
+  const [assignmentStatusLoading,setAssignmentStatusLoading] = useState(false)
   const [parentChildId, setParentChildId] = useState(3)
   const currentUser = authUser ? (users.find(u => u.id === authUser.id && u.role === authUser.role) || authUser) : (users.find(u => u.id === currentUserId) || DEMO_USERS[0])
   const role = currentUser.role
@@ -390,7 +422,7 @@ function App() {
   const roleNav = nav.filter(n => {
     if (role === 'admin') return !['library','children','practice'].includes(n.id)
     if (role === 'assistant_admin') return !['library','children','practice','settings','system','admins'].includes(n.id)
-    if (role === 'teacher') return ['dashboard','books','chapters','questions','tests','quarterly','assignments','students','reports','library','ranking','diagnostics','ai','international','teacher-tools','student-assistant','help'].includes(n.id)
+    if (role === 'teacher') return ['dashboard','books','chapters','questions','tests','quarterly','assignments','students','parent-links','reports','library','ranking','diagnostics','ai','international','teacher-tools','student-assistant','help'].includes(n.id)
     if (role === 'student') return ['dashboard','library','students','quarterly','practice','reports','ranking','diagnostics','international','student-assistant','help'].includes(n.id)
     return ['dashboard','children','reports','ranking','diagnostics','help'].includes(n.id)
   }).map(n => n.id === 'students' && role === 'student' ? {...n,label:'Mening testlarim'} : n)
@@ -581,6 +613,25 @@ function App() {
   useEffect(()=>syncState('testSets',testSets,isManager||role==='teacher'),[testSets,hydrated,role])
   useEffect(()=>syncState('quarterGates',quarterGates,isManager),[quarterGates,hydrated,role])
   useEffect(()=>syncState('assignments',assignments,isManager||role==='teacher'),[assignments,hydrated,role])
+  useEffect(()=>{
+    if(!loggedIn||!hydrated||page!=='assignments'||!(isManager||role==='teacher'))return
+    let active=true
+    const refresh=async()=>{
+      try{
+        const reply=await api<{rows:AssignmentStatus[]}>('/api/assignments/status')
+        if(active){setAssignmentStatuses(reply.rows);setAssignmentStatusError('')}
+      }catch(e){if(active)setAssignmentStatusError(e instanceof Error?e.message:'Monitoringni yangilab bo‘lmadi')}
+    }
+    void refresh()
+    const timer=window.setInterval(()=>void refresh(),20000)
+    return()=>{active=false;window.clearInterval(timer)}
+  },[loggedIn,hydrated,page,role,isManager,assignments.length])
+  async function refreshAssignmentStatus(){
+    setAssignmentStatusLoading(true)
+    try{const result=await api<{rows:AssignmentStatus[]}>('/api/assignments/status');setAssignmentStatuses(result.rows);setAssignmentStatusError('')}
+    catch(e){setAssignmentStatusError(e instanceof Error?e.message:'Monitoringni yangilab bo‘lmadi')}
+    finally{setAssignmentStatusLoading(false)}
+  }
   useEffect(()=>syncState('adminSettings',adminSettings,role==='admin'),[adminSettings,hydrated,role])
   useEffect(()=>{if(loggedIn&&hydrated)void loadRanking()},[loggedIn,hydrated,rankGrade,rankClass,testAttempts.length])
   async function loadRanking(){
@@ -742,7 +793,15 @@ function App() {
     if(!test||!cls||books.find(b=>b.id===test.bookId)?.grade!==cls.grade){setNotice('Test sinfi bilan tanlangan sinf mos emas.');return}
     if(role==='teacher'&&!myClassIds.includes(cls.id)){setNotice('Faqat o‘zingizga biriktirilgan sinfga test tayinlang.');return}
     if(assignments.some(a=>a.testId===test.id&&a.classId===cls.id)){setNotice('Test bu sinfga oldin tayinlangan.');return}
-    setAssignments(old=>[...old,{id:Date.now(),testId:test.id,classId:cls.id,createdAt:new Date().toISOString()}]);setNotice('Test tayinlandi va serverga saqlanadi.')
+    let startAt:string|undefined
+    if(assignmentStartInput){
+      const time=new Date(assignmentStartInput).getTime()
+      if(!Number.isFinite(time)){setNotice('Boshlanish vaqtini to‘g‘ri kiriting.');return}
+      if(test.availableUntil&&time>=new Date(test.availableUntil).getTime()){setNotice('Boshlanish vaqti test yopilishidan oldin bo‘lishi kerak.');return}
+      startAt=new Date(time).toISOString()
+    }
+    setAssignments(old=>[...old,{id:Date.now(),testId:test.id,classId:cls.id,createdAt:new Date().toISOString(),startAt}])
+    setAssignmentStartInput('');setNotice('Test sinfga tayinlandi. Belgilangan boshlanish vaqti o‘quvchiga ko‘rinadi.')
   }
 
 
@@ -1139,7 +1198,7 @@ function App() {
     setQuestions(old=>old.filter(item=>item.id!==q.id))
     if (editingQuestionId===q.id) resetQuestionForm()
     void Promise.allSettled(allImageKeys(q).map(deleteImageBlob))
-    setNotice('Savol o‘chirildi. Test natijalari (demo) qayta hisoblanadi.')
+    setNotice('Savol o‘chirildi. Test natijalari qayta hisoblanadi.')
   }
 
   // Test sozlamalari: umumiy admin standartlari va har bir testning o‘ziga xos parametrlari.
@@ -1151,7 +1210,7 @@ function App() {
   const studentTestResult = activeSession?.resultId ? testAttempts.find(a => a.id === activeSession.resultId) : null
   const secondsLeft = activeSession ? Math.max(0, Math.ceil((activeSession.deadlineAt - clockNow) / 1000)) : 0
   const eligibleTests = testSets.filter(t =>
-    isAvailableNow(t, clockNow) && quarterIsAvailable(t) && books.find(b => b.id === t.bookId)?.grade === (role==='student'?currentClass?.grade:studentGrade) && assignedToStudent(t.id,currentUser.id) &&
+    t.active && books.find(b => b.id === t.bookId)?.grade === (role==='student'?currentClass?.grade:studentGrade) && assignedToStudent(t.id,currentUser.id) &&
     t.questionIds.some(id => questions.some(q => q.id === id)))
   const attemptsUsed = (id: number) => testAttempts.filter(a => a.testId === id && (role!=='student' || a.studentId===currentUser.id)).length
   const testDuration = (t: TestSet) => t.durationMinutes ?? adminSettings.durationMinutes
@@ -1174,7 +1233,7 @@ function App() {
       durationMinutes: optionalNumber(draftDuration, 1, 240), attemptLimit: optionalNumber(draftAttempts, 1, 20),
       passingPercent: optionalNumber(draftPassing, 0, 100),
       showResult: draftShowResult === 'default' ? undefined : draftShowResult === 'yes',
-      availableFrom: draftAvailableFrom || undefined, availableUntil: draftAvailableUntil || undefined,
+      availableFrom: dateInputToIso(draftAvailableFrom), availableUntil: dateInputToIso(draftAvailableUntil),
       kind: draftTestKind, quarter: draftTestKind==='quarter'?draftTestQuarter:undefined }
     setTestSets(old => [...old, test])
     setNewTestName(''); setChosenQuestions([])
@@ -1266,7 +1325,7 @@ function App() {
   }
   function exportAttemptsCsv() {
     const rows = [['Test','O‘quvchi','Sinf','To‘g‘ri','Jami','Foiz','Holat','Sabab','Sana'],
-      ...visibleAttempts.map(a=>[a.testTitle, users.find(u=>u.id===a.studentId)?.name||'Avvalgi demo',`${a.grade}`,`${a.score}`,`${a.total}`,`${Math.round(a.score/a.total*100)}`,a.passed===undefined?'—':a.passed?'O‘tdi':'O‘tmadi',a.reason==='expired'?'Vaqt tugadi':'Yakunlandi',a.createdAt])]
+      ...visibleAttempts.map(a=>[a.testTitle, users.find(u=>u.id===a.studentId)?.name||'O‘quvchi',`${a.grade}`,`${a.score}`,`${a.total}`,`${Math.round(a.score/a.total*100)}`,a.passed===undefined?'—':a.passed?'O‘tdi':'O‘tmadi',a.reason==='expired'?'Vaqt tugadi':'Yakunlandi',a.createdAt])]
     downloadText('\uFEFF'+rows.map(row=>row.map(csvSafe).join(',')).join('\r\n'), 'math-diagnoz-hisobot.csv', 'text/csv;charset=utf-8')
     setNotice('Hisobot CSV formatida yuklab olindi.')
   }
@@ -1303,7 +1362,7 @@ function App() {
   }
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="sidebar-head"><div className="brand-mark">M</div><div className="brand-name">MATH-DIAGNOZ <small>{ROLE_NAMES[role].toUpperCase()} · v2.0 (AI)</small></div></div><div className="sidebar-caption">BO‘LIMLAR</div><nav className="v2-sidebar-nav">{NAV_GROUPS.map(group=>{
+    <aside className="sidebar"><div className="sidebar-head"><div className="brand-mark">M</div><div className="brand-name">MATH-DIAGNOZ <small>{ROLE_NAMES[role].toUpperCase()}</small></div></div><div className="sidebar-caption">BO‘LIMLAR</div><nav className="v2-sidebar-nav">{NAV_GROUPS.map(group=>{
       const items=roleNav.filter(n=>group.ids.includes(n.id))
       if(!items.length)return null
       const single=items.length===1
@@ -1312,9 +1371,9 @@ function App() {
         {single?<button className={'nav-item v2-topnav '+(page===items[0].id?'active':'')} onClick={()=>{setPage(items[0].id);setNotice('')}}><span>{group.icon}</span>{group.title==='Bosh sahifa'?group.title:items[0].label}</button>
         :<><button type="button" className={'v2-group-button '+(opened?'open':'')} onClick={()=>setOpenGroups(p=>({...p,[group.title]:!opened}))}><span className="v2-nav-icon">{group.icon}</span><strong>{group.title}</strong><span aria-hidden="true">{opened?'⌄':'›'}</span></button>{opened&&<div className="v2-subnav">{items.map(n=><button type="button" key={n.id} onClick={()=>{setPage(n.id);setNotice('')}} className={'nav-item '+(page===n.id?'active':'')}><span>{n.icon}</span>{n.label}</button>)}</div>}</>}
       </div>
-    })}</nav><div className="side-footer">MATH-DIAGNOZ · v2.0 AI</div></aside>
-    <div className="main-area"><header className="topbar"><div><span className="muted">MATH-DIAGNOZ</span><span className="slash"> / </span>{roleNav.find(n => n.id === page)?.label}</div><div className="topbar-actions"><button className="ghost" onClick={()=>setShowPublicPage(true)} title="Bosh sahifani ko‘rish">⌂ Bosh sahifa</button><span className="demo-pill">● NEON · RENDER PILOT</span><span className="avatar">{currentUser.name.slice(0,1).toUpperCase()}</span><span>{currentUser.name}</span><button className="ghost" onClick={()=>{void logout()}}>Chiqish</button></div></header>
-      <main className="content">{currentUser.verified===false&&<div className="md17-pending-banner"><strong>⌛ Maktab tasdig‘i kutilmoqda</strong><span>Hisobingiz yaratildi. Administrator sinfingizni yoki ota-ona maqomingizni tasdiqlaguncha ayrim imkoniyatlar yopiq. Ota-ona farzandini o‘zi biriktira olmaydi.</span></div>}<div className="page-heading"><div><div className="eyebrow">BOSHQARUV TIZIMI</div><h1>{roleNav.find(n => n.id === page)?.label}</h1><p>Ta’lim materiallarini tizimli boshqarish va diagnostika qilish</p></div><span className="date">MATH-DIAGNOZ · sinov muhiti</span></div>
+    })}</nav><div className="side-footer">MATH-DIAGNOZ</div></aside>
+    <div className="main-area"><header className="topbar"><div><span className="muted">MATH-DIAGNOZ</span><span className="slash"> / </span>{roleNav.find(n => n.id === page)?.label}</div><div className="topbar-actions"><button className="ghost" onClick={()=>setShowPublicPage(true)} title="Bosh sahifani ko‘rish">⌂ Bosh sahifa</button><span className="avatar">{currentUser.name.slice(0,1).toUpperCase()}</span><span>{currentUser.name}</span><button className="ghost" onClick={()=>{void logout()}}>Chiqish</button></div></header>
+      <main className="content">{currentUser.verified===false&&<div className="md17-pending-banner"><strong>⌛ Maktab tasdig‘i kutilmoqda</strong><span>Hisobingiz yaratildi. Administrator sinfingizni yoki ota-ona maqomingizni tasdiqlaguncha ayrim imkoniyatlar yopiq. Ota-ona farzandini o‘zi biriktira olmaydi.</span></div>}<div className="page-heading"><div><div className="eyebrow">BOSHQARUV TIZIMI</div><h1>{roleNav.find(n => n.id === page)?.label}</h1><p>Ta’lim materiallarini tizimli boshqarish va diagnostika qilish</p></div></div>
       {notice && <div className="notice" role="status">{notice}<button className="ghost" onClick={() => setNotice('')}>×</button></div>}
       {['ai','international','teacher-tools','student-assistant','help'].includes(page) && <V2Modules key={page} page={page as 'ai'|'international'|'teacher-tools'|'student-assistant'|'help'} role={role} name={currentUser.name} books={books} onImport={importAiQuestions}/>}
       {page==='dashboard'&&<section className="md13-welcome"><div><span className="md13-kicker">✦ MATH-DIAGNOZ · RAQAMLI TA’LIM</span><h2>Xush kelibsiz, {currentUser.name.split(' ')[0]}!</h2><p>{isManager?'Barcha maktablar, sinflar va bilim natijalarini bitta joyda boshqaring.':role==='teacher'?'Har bir o‘quvchining o‘sishini kuzating va individual yordamni tashkil qiling.':role==='student'?'Yangi bilimlarni egallang, testlarda qatnashing va o‘z rekordingizni yangilang.':'Farzandlaringizning yutuqlari va bilim rivojlanishini kuzating.'}</p><div className="md-button-row"><button className="md13-welcome-btn" onClick={()=>setPage(role==='student'?'students':role==='parent'?'children':role==='teacher'?'assignments':'quarterly')}>{isManager?'Chorak testlarini boshqarish':role==='teacher'?'Test tayinlash':role==='student'?'Testlarimni ochish':'Farzandlarim'} ↗</button><button className="md13-welcome-ghost" onClick={()=>setPage('diagnostics')}>Matematik pasport →</button></div></div><div className="md13-orbit" aria-hidden="true"><span>π</span><span>∑</span><span>√</span><span>△</span><strong>f(x)</strong></div></section>}
@@ -1650,8 +1709,8 @@ function App() {
                  <label>Urinishlar soni<input type="number" min="1" max="20" placeholder={`Umumiy: ${adminSettings.maxAttempts}`} value={t.attemptLimit??''} onChange={e=>patchTest(t.id,{attemptLimit:e.target.value===''?undefined:Math.max(1,Math.min(20,Number(e.target.value)))})}/></label>
                  <label>O‘tish bali (%)<input type="number" min="0" max="100" placeholder={`Umumiy: ${adminSettings.passingPercent}`} value={t.passingPercent??''} onChange={e=>patchTest(t.id,{passingPercent:e.target.value===''?undefined:Math.max(0,Math.min(100,Number(e.target.value)))})}/></label>
                  <label>Natija ko‘rsatilishi<select value={t.showResult===undefined?'default':t.showResult?'yes':'no'} onChange={e=>patchTest(t.id,{showResult:e.target.value==='default'?undefined:e.target.value==='yes'})}><option value="default">Umumiy sozlama</option><option value="yes">Ko‘rsatish</option><option value="no">Yashirish</option></select></label>
-                 <label>Faol bo‘lishidan boshlab<input type="datetime-local" value={t.availableFrom||''} onChange={e=>patchTest(t.id,{availableFrom:e.target.value||undefined})}/></label>
-                 <label>Faol bo‘lishi tugaguncha<input type="datetime-local" min={t.availableFrom||undefined} value={t.availableUntil||''} onChange={e=>patchTest(t.id,{availableUntil:e.target.value||undefined})}/></label>
+                 <label>Faol bo‘lishidan boshlab<input type="datetime-local" value={localDatetimeInput(t.availableFrom)} onChange={e=>patchTest(t.id,{availableFrom:dateInputToIso(e.target.value)})}/></label>
+                 <label>Faol bo‘lishi tugaguncha<input type="datetime-local" min={localDatetimeInput(t.availableFrom)||undefined} value={localDatetimeInput(t.availableUntil)} onChange={e=>patchTest(t.id,{availableUntil:dateInputToIso(e.target.value)})}/></label>
                </div>
                <small className="md-v07-savehint">O‘zgartirishlar avtomatik saqlanadi. Boshlangan testning hisoblagichi o‘zgarmaydi.</small>
                <div className="md-button-row"><button type="button" className="btn btn-outline" onClick={()=>toggleTest(t.id)}>{t.active?'Testni yopish':'Faollashtirish'}</button>
@@ -1667,10 +1726,20 @@ function App() {
            <p className="hint">Administrator test vaqtini va urinishlar sonini boshqaradi. Test vaqtini server nazorat qiladi; sahifani yangilash vaqtni qayta boshlamaydi.</p>
            <p className="md-v08-note">Testni administrator yoki o‘qituvchi sinfingizga tayinlagan bo‘lishi kerak. Sinf: <b>{currentClass?.name||'biriktirilmagan'}</b>. Sahifani yangilash test vaqtini qaytarmaydi.</p>
            {activeSession?.status==='running'&&<div className="md-v07-notice">Sizda boshlangan test bor. Boshqa bo‘limga o‘tsangiz ham vaqt davom etadi. Shu sahifaga qaytib davom ettiring.</div>}
-           {!runningTest&&<>{eligibleTests.length===0?<div className="empty">Bu sinfda ochiq test yo‘q. «Testlarni boshqarish» orqali testni faollashtiring.</div>:eligibleTests.map(t=><div className="md-v06-testcard" key={t.id}>
-             <strong>{t.title}</strong><p>{t.questionIds.length} ta savol · ⏱ {testDuration(t)} daqiqa · Urinish: {attemptsUsed(t.id)}/{testAttemptsLimit(t)}</p>
-             <button className="btn btn-primary" disabled={attemptsUsed(t.id)>=testAttemptsLimit(t)} onClick={()=>startStudentTest(t.id)}>{attemptsUsed(t.id)>=testAttemptsLimit(t)?'Urinishlar tugagan':'Testni boshlash →'}</button>
-           </div>)}</>}
+           {!runningTest&&<>{eligibleTests.length===0?<div className="empty">Bu sinfga hali test yuborilmagan.</div>:eligibleTests.map(t=>{
+             const assignment=assignments.find(a=>a.testId===t.id&&a.classId===currentUser.classId)
+             const starts=scheduledStart(assignment,t)
+             const waiting=Boolean(starts&&clockNow<starts)
+             const closed=Boolean(t.availableUntil&&clockNow>=new Date(t.availableUntil).getTime())
+             const gated=!quarterIsAvailable(t)
+             const used=attemptsUsed(t.id)>=testAttemptsLimit(t)
+             return <div className="md-v06-testcard md27-student-test" key={t.id}>
+               <div className="md27-test-title"><strong>{t.title}</strong><span className={'md27-status '+(waiting?'future':closed||gated?'closed':'open')}>{waiting?'Boshlanishi kutilmoqda':closed?'Muddati tugagan':gated?'Hozircha yopiq':used?'Yakunlangan':'Ochiq'}</span></div>
+               <p>{t.questionIds.length} ta savol · ⏱ {testDuration(t)} daqiqa · Urinish: {attemptsUsed(t.id)}/{testAttemptsLimit(t)}</p>
+               <div className="md27-start-info"><span>📅 Test boshlanishi</span><strong>{displayDateTime(starts||assignment?.createdAt)}</strong>{t.availableUntil&&<small>Yopilish vaqti: {displayDateTime(t.availableUntil)}</small>}</div>
+               <button className="btn btn-primary" disabled={used||waiting||closed||gated} onClick={()=>startStudentTest(t.id)}>{used?'Urinishlar tugagan':waiting?'Belgilangan vaqtni kuting':closed?'Test yopilgan':gated?'Chorak testi yopiq':'Testni boshlash →'}</button>
+             </div>
+           })}</>}
          </section>
          {runningTest&&<section className="panel">
            <div className="panel-head"><h2>{runningTest.title}</h2><span className="tag">{runningQuestions.length} ta savol</span></div>
@@ -1690,9 +1759,9 @@ function App() {
                <h3>{studentTestResult.reason==='expired'?'Vaqt tugadi — test yakunlandi':'Test yakunlandi'}</h3>
                <h2>{Math.round(studentTestResult.score/studentTestResult.total*100)}% · {studentTestResult.passed?'O‘tdi':'O‘tmadi'}</h2>
                <p><strong>{studentTestResult.score} / {studentTestResult.total}</strong> ta to‘g‘ri javob</p>
-               <h3>Mavzular bo‘yicha matematik pasport (demo)</h3>
+               <h3>Mavzular bo‘yicha matematik pasport</h3>
                {studentTestResult.topicResults.map(t=><div key={t.topic} className="md-v06-topic"><span>{t.topic}</span><span>{t.correct}/{t.total} · {Math.round(t.correct/t.total*100)}%</span><div className="md-v06-meter"><span style={{width:`${t.correct/t.total*100}%`,background:t.correct/t.total<0.5?'#ce5252':t.correct/t.total<0.8?'#d9a53f':'#2f9e78'}}/></div></div>)}
-               <p className="hint">Kam savolli test diagnostikasi ilmiy baholash emas, demo natija hisoblanadi.</p>
+               <p className="hint">Kam savolli test diagnostikasi ilmiy baholash emas, taxminiy natija hisoblanadi.</p>
              </> : <><h3>Test yakunlandi</h3><p>Administrator sozlamasiga binoan natija o‘quvchiga ko‘rsatilmaydi. Hisobot admin panelida saqlangan.</p></>}
              <button className="btn btn-primary" onClick={()=>{finishLock.current=false;setActiveSession(null)}}>Boshqa testni tanlash</button>
            </div>}
@@ -1764,7 +1833,7 @@ function App() {
         </div>})}</div>
         <div className="md-v12-section-head"><h3>{quarterGrade}-sinf · choraklik testlar</h3>{(isManager||role==='teacher')&&<button className="btn btn-primary" type="button" onClick={()=>{const book=books.find(b=>b.grade===quarterGrade);if(!book){setCatalogGrade(quarterGrade);setPage('books');setNotice(`${quarterGrade}-sinf uchun avval darslik yarating.`);return}setSelectedBook(book.id);setSelectedChapter(book.chapters[0]?.id||0);setDraftTestKind('quarter');setDraftTestQuarter(quarterNumber);setPage('tests');setNotice(`${quarterGrade}-sinf, ${quarterNumber}-chorak uchun savollarni tanlab test yarating.`)}}>+ Chorak testini yaratish</button>}</div>
         <div className="md-v12-quarter-filter"><label>Chorak<select value={quarterNumber} onChange={e=>setQuarterNumber(Number(e.target.value))}>{[1,2,3,4].map(q=><option key={q} value={q}>{q}-chorak</option>)}</select></label></div>
-        {testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).length===0?<div className="empty">Bu chorak uchun test hali yaratilmagan. «Savollar banki»da savollar tuzing, so‘ng «Testlarni boshqarish»da turini «Choraklik test» deb tanlang.</div>:testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).map(t=>{const used=assignments.filter(a=>a.testId===t.id),count=testAttempts.filter(a=>a.testId===t.id).length;return <div className="md-v12-quarter-test" key={t.id}><div><strong>{t.title}</strong><small>{t.questionIds.length} ta savol · {testDuration(t)} daqiqa · {count} yakunlangan urinish</small><small>Tayinlangan: {used.map(a=>classes.find(c=>c.id===a.classId)?.name||'Sinf').join(', ')||'Hech bir sinfga yuborilmagan'}</small></div><div className="md-button-row"><span className={t.active&&quarterIsAvailable(t)?'md-v12-online':'md-v12-offline'}>{t.active&&quarterIsAvailable(t)?'Ochiq':'Yopiq'}</span>{(isManager||role==='teacher')&&<button className="btn btn-outline" onClick={()=>{setAssignmentTestId(t.id);setPage('assignments')}}>Sinfga yuborish →</button>}{role==='student'&&assignedToStudent(t.id,currentUser.id)&&t.active&&quarterIsAvailable(t)&&<button className="btn btn-primary" onClick={()=>startStudentTest(t.id)}>Testni boshlash →</button>}</div></div>})}
+        {testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).length===0?<div className="empty">Bu chorak uchun test hali yaratilmagan. «Savollar banki»da savollar tuzing, so‘ng «Testlarni boshqarish»da turini «Choraklik test» deb tanlang.</div>:testSets.filter(t=>t.kind==='quarter'&&quarterTestGrade(t)===quarterGrade&&(t.quarter||1)===quarterNumber).map(t=>{const used=assignments.filter(a=>a.testId===t.id),count=testAttempts.filter(a=>a.testId===t.id).length;return <div className="md-v12-quarter-test" key={t.id}><div><strong>{t.title}</strong><small>{t.questionIds.length} ta savol · {testDuration(t)} daqiqa · {count} yakunlangan urinish</small><small>Tayinlangan: {used.map(a=>classes.find(c=>c.id===a.classId)?.name||'Sinf').join(', ')||'Hech bir sinfga yuborilmagan'}</small></div><div className="md-button-row"><span className={t.active&&quarterIsAvailable(t)?'md-v12-online':'md-v12-offline'}>{t.active&&quarterIsAvailable(t)?'Ochiq':'Yopiq'}</span>{(isManager||role==='teacher')&&<button className="btn btn-outline" onClick={()=>{setAssignmentTestId(t.id);setPage('assignments')}}>Sinfga yuborish →</button>}{role==='student'&&assignedToStudent(t.id,currentUser.id)&&t.active&&quarterIsAvailable(t)&&<><small>📅 Boshlanish: {displayDateTime(scheduledStart(assignments.find(a=>a.testId===t.id&&a.classId===currentUser.classId),t))}</small><button className="btn btn-primary" disabled={clockNow<scheduledStart(assignments.find(a=>a.testId===t.id&&a.classId===currentUser.classId),t)||!isAvailableNow(t,clockNow)} onClick={()=>startStudentTest(t.id)}>Testni boshlash →</button></>}</div></div>})}
         <p className="hint">Chorak faolligi serverdagi bazaga saqlanadi. O‘quvchi uchun sinfga tayinlash, testning «Faol» holati, chorak ochiqligi va urinish limiti birgalikda tekshiriladi.</p>
       </section>}
       {page === 'classes' && isManager  && <div className="two-cols">
@@ -1803,9 +1872,38 @@ function App() {
           <div className="md-v08-scroll">{filteredUsers.length===0&&<div className="empty">Tanlangan rol yoki qidiruv bo‘yicha foydalanuvchi topilmadi.</div>}{filteredUsers.map(u=><div className="md-v08-list" key={u.id}><div><strong>{u.name} {u.verified===false&&<span className="md17-pending-tag">Tasdiq kutilmoqda</span>} {!u.active&&<span style={{color:'#c13c3c'}}> (bloklangan)</span>}</strong><small>{ROLE_NAMES[u.role]} {u.classId?' · '+(classes.find(c=>c.id===u.classId)?.name||'Sinf yo‘q'):''}{u.childIds?.length?' · '+u.childIds.length+' farzand':''}</small></div><div className="md-button-row">{['student','parent'].includes(u.role)&&<button className="btn btn-outline" onClick={()=>void toggleVerified(u)}>{u.verified===false?'✓ Tasdiqlash':'Tasdiqni bekor qilish'}</button>}<button className="btn btn-outline" disabled={u.role==='admin'&&u.id!==currentUser.id||u.role==='assistant_admin'&&role!=='admin'} onClick={()=>editUser(u)}>Tahrirlash</button><button className="btn md-btn-danger" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void deleteUser(u)}>Butunlay o‘chirish</button><button className="btn btn-outline" disabled={u.role==='admin'||u.role==='assistant_admin'&&role!=='admin'||u.id===currentUser.id} onClick={()=>void toggleUser(u)}>{u.active?'Bloklash':'Faollashtirish'}</button></div></div>)}</div></section>
         <section className="panel"><h2>{editingUserId===null?'Yangi foydalanuvchi':'Profilni tahrirlash'}</h2><form className="form" onSubmit={addOrEditUser}><label>Ism / profil nomi<input value={newUserName} required onChange={e=>setNewUserName(e.target.value)}/></label>{editingUserId===null&&<><label>Yangi login<input value={newUserUsername} required minLength={3} maxLength={32} placeholder="Masalan: ustoz2026" onChange={e=>setNewUserUsername(e.target.value)}/></label><label>Vaqtinchalik parol<input type="password" value={newUserPassword} minLength={8} required placeholder="Kamida 8 belgi" onChange={e=>setNewUserPassword(e.target.value)}/></label></>}<label>Rol<select value={newUserRole} onChange={e=>setNewUserRole(e.target.value as DemoRole)}>{role==='admin'&&<option value="assistant_admin">Yordamchi admin</option>}<option value="teacher">O‘qituvchi</option><option value="student">O‘quvchi</option><option value="parent">Ota-ona</option></select></label>{newUserRole==='student'&&<label>Sinf<select value={newUserClassId} onChange={e=>setNewUserClassId(Number(e.target.value))}>{classes.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label>}{newUserRole==='teacher'&&<div><strong>O‘qituvchiga biriktiriladigan sinflar</strong>{classes.map(c=><label key={c.id} className="md-v08-check"><input type="checkbox" checked={newTeacherClassIds.includes(c.id)} onChange={e=>setNewTeacherClassIds(old=>e.target.checked?[...old,c.id]:old.filter(id=>id!==c.id))}/>{c.name}</label>)}</div>}{newUserRole==='parent'&&<ParentChildPicker key={editingUserId??'new'} schools={schools} classes={classes} users={users} value={newParentChildIds} onChange={setNewParentChildIds}/> }{editingUserId!==null&&<label>Yangi parol (ixtiyoriy, kamida 8 belgi)<input type="password" minLength={8} value={userResetPassword} onChange={e=>setUserResetPassword(e.target.value)} placeholder="Parolni o‘zgartirmaslik uchun bo‘sh qoldiring"/></label>}<div className="md-button-row"><button className="btn btn-primary">Saqlash</button>{editingUserId!==null&&<button type="button" className="btn btn-outline" onClick={()=>{setEditingUserId(null);setNewUserName('')}}>Bekor qilish</button>}</div></form><p className="hint">Yangi foydalanuvchi login va parol bilan kiradi. Parollar Neon PostgreSQL bazasida xesh shaklida saqlanadi. Ota-ona va farzand aloqasini administrator belgilaydi.</p></section>
       </div>}
-      {page === 'assignments' && (isManager||role==='teacher') && <div className="two-cols">
-        <section className="panel"><h2>Testni sinfga yuborish</h2><form className="form" onSubmit={assignTest}><label>Test<select value={assignmentTestId} onChange={e=>setAssignmentTestId(Number(e.target.value))}><option value={0}>Testni tanlang</option>{testSets.filter(t=>t.active).map(t=><option key={t.id} value={t.id}>{t.title} ({books.find(b=>b.id===t.bookId)?.grade}-sinf)</option>)}</select></label><label>Sinf<select value={assignmentClassId} onChange={e=>setAssignmentClassId(Number(e.target.value))}>{classes.filter(c=>isManager||myClassIds.includes(c.id)).map(c=><option key={c.id} value={c.id}>{c.name} ({c.grade}-sinf)</option>)}</select></label><p className="hint">Faqat faol test yuboriladi. Test darsligi darajasi tanlangan sinf bilan mos bo‘lishi kerak.</p><button className="btn btn-primary" disabled={!assignmentTestId}>⇢ Testni sinfga yuborish</button></form></section>
-        <section className="panel"><h2>Yuborilgan testlar · {assignments.length} ta</h2>{assignments.length===0?<div className="empty">Hali sinfga test yuborilmagan.</div>:assignments.filter(a=>isManager||myClassIds.includes(a.classId)).map(a=><div className="md-v08-list" key={a.id}><div><strong>{testSets.find(t=>t.id===a.testId)?.title||'O‘chirilgan test'}</strong><small>{classes.find(c=>c.id===a.classId)?.name||'Sinf topilmadi'} · {new Date(a.createdAt).toLocaleString('uz-UZ')}</small></div><button className="btn md-btn-danger" onClick={()=>{if(window.confirm('Testni bu sinfdan olib tashlaysizmi?'))setAssignments(old=>old.filter(x=>x.id!==a.id))}}>Bekor qilish</button></div>)}</section>
+      {page === 'parent-links' && role==='teacher' && <TeacherParentLinks teacherId={currentUser.id} classes={classes} users={users} />}
+      {page === 'assignments' && (isManager||role==='teacher') && <div className="two-cols md27-assign-layout">
+        <section className="panel"><h2>Testni sinfga yuborish</h2><form className="form" onSubmit={assignTest}>
+          <label>Test<select value={assignmentTestId} onChange={e=>setAssignmentTestId(Number(e.target.value))}><option value={0}>Testni tanlang</option>{testSets.filter(t=>t.active).map(t=><option key={t.id} value={t.id}>{t.title} ({books.find(b=>b.id===t.bookId)?.grade}-sinf)</option>)}</select></label>
+          <label>Sinf<select value={assignmentClassId} onChange={e=>setAssignmentClassId(Number(e.target.value))}>{classes.filter(c=>isManager||myClassIds.includes(c.id)).map(c=><option key={c.id} value={c.id}>{c.name} ({c.grade}-sinf)</option>)}</select></label>
+          <label>📅 Boshlanish vaqti (ixtiyoriy)<input type="datetime-local" value={assignmentStartInput} onChange={e=>setAssignmentStartInput(e.target.value)}/></label>
+          <p className="hint">Vaqt belgilamasangiz test darhol ochiladi (testning o‘zida keyinroq vaqt belgilanmagan bo‘lsa). O‘quvchi boshlanish sanasi va soatini ko‘radi.</p>
+          <button className="btn btn-primary" disabled={!assignmentTestId}>⇢ Testni sinfga yuborish</button></form></section>
+        <section className="panel"><div className="panel-head"><h2>Yuborilgan testlar · {assignments.filter(a=>isManager||myClassIds.includes(a.classId)).length} ta</h2><button type="button" className="btn btn-outline" disabled={assignmentStatusLoading} onClick={()=>void refreshAssignmentStatus()}>{assignmentStatusLoading?'Yangilanmoqda...':'↻ Holatni yangilash'}</button></div>
+          {assignmentStatusError&&<p className="md27-error" role="alert">{assignmentStatusError}</p>}
+          {assignments.length===0?<div className="empty">Hali sinfga test yuborilmagan.</div>:assignments.filter(a=>isManager||myClassIds.includes(a.classId)).map(a=>{
+            const test=testSets.find(t=>t.id===a.testId)
+            const report=assignmentStatuses.find(r=>r.id===a.id)
+            const opened=expandedAssignment===a.id
+            const startsAt=report?.startAt||scheduledStart(a,test||{availableFrom:undefined} as TestSet)
+            const waitingForStart=Boolean(startsAt&&clockNow<new Date(startsAt).getTime())
+            const pastDeadline=Boolean(test?.availableUntil&&clockNow>=new Date(test.availableUntil).getTime())
+            const stateLabel=!test?.active?'Yopiq':pastDeadline?'Muddat tugagan':waitingForStart?'Rejalangan':'Ochiq'
+            return <div className="md27-assignment" key={a.id}>
+              <div className="md27-assignment-head"><div><strong>{test?.title||'O‘chirilgan test'}</strong><small>{classes.find(c=>c.id===a.classId)?.name||'Sinf topilmadi'} · Yuborilgan: {displayDateTime(a.createdAt)}</small><small>Boshlanishi: <b>{displayDateTime(report?.startAt||scheduledStart(a,test||{availableFrom:undefined} as TestSet))}</b></small></div>
+              <span className={'md27-status '+(stateLabel==='Ochiq'?'open':stateLabel==='Rejalangan'?'future':'closed')}>{stateLabel}</span></div>
+              {report&&<div className="md27-counter-row"><span>Jami <b>{report.total}</b></span><span>Yakunladi <b>{report.finished}</b></span><span>Jarayonda <b>{report.running}</b></span><span>Kutmoqda <b>{report.waiting}</b></span><span>Yopilgan <b>{report.expired}</b></span></div>}
+              <div className="md-button-row md27-actions"><button type="button" className="btn btn-outline" aria-expanded={opened} onClick={()=>{setExpandedAssignment(opened?null:a.id);setPreviewAssignmentQuestions(false);if(!opened)void refreshAssignmentStatus()}}>{opened?'▴ Yopish':'◉ Holatini ko‘rish'}</button><button type="button" className="btn md-btn-danger" onClick={()=>{if(window.confirm('Testni bu sinfdan olib tashlaysizmi?')){setAssignments(old=>old.filter(x=>x.id!==a.id));setExpandedAssignment(null)}}}>Bekor qilish</button></div>
+              {opened&&<div className="md27-detail"><div className="md27-detail-header"><strong>Test ma’lumotlari</strong><button type="button" className="btn btn-outline" onClick={()=>setPreviewAssignmentQuestions(v=>!v)}>{previewAssignmentQuestions?'Savollarni yashirish':'Savollarni ko‘rish'}</button></div>
+                <div className="md27-meta"><span>Savollar: <b>{test?.questionIds.length||0}</b></span><span>Davomiylik: <b>{test?testDuration(test):'—'} daqiqa</b></span><span>Yopilishi: <b>{displayDateTime(report?.endAt||test?.availableUntil)}</b></span></div>
+                {previewAssignmentQuestions&&<ol className="md27-question-list">{test?.questionIds.map(id=>questions.find(q=>q.id===id)).filter((q):q is Question=>Boolean(q)).map(q=><li key={q.id}><b>{q.text||'Rasmli savol'}</b><SavedQuestionImages imageKeys={q.imageKeys} label="Savol rasmi"/><ul>{q.options.map((opt,i)=><li className={q.correct===i?'md27-correct':''} key={i}>{String.fromCharCode(65+i)}) {opt}{q.correct===i?' ✓':''}<SavedQuestionImages imageKeys={q.optionImageKeys?.[i]} label="Variant rasmi"/></li>)}</ul></li>)}</ol>}
+                <strong>O‘quvchilar holati</strong>
+                {!report?<p className="hint">Monitoring yuklanmoqda. «Holatni yangilash»ni bosing.</p>:report.students.length===0?<p className="hint">Sinfga faol o‘quvchi biriktirilmagan.</p>:<div className="md27-student-list">{report.students.map(u=><div key={u.id} className="md27-student-row"><span>{u.name}</span><span>{u.status==='finished'?`✓ Yakunladi · ${u.score}/${u.total}`:u.status==='running'?'▶ Ishlamoqda':u.status==='expired'?'⏰ Vaqti tugagan':u.status==='scheduled'?'◷ Boshlanishni kutmoqda':u.status==='closed'?'⏰ Test yopilgan':'— Boshlamagan'}</span></div>)}</div>}
+                <small className="hint">Natijalar 20 soniyada yangilanadi. Har bir o‘quvchining yakunlangan testi hisobga olinadi.</small>
+              </div>}
+            </div>
+          })}</section>
       </div>}
       {page === 'children' && role==='parent' && <section className="panel"><h2>Farzandlarim</h2><p className="hint">Ota-onaga bir nechta farzand biriktirish mumkin. Har birining natijalari alohida ko‘rsatiladi.</p>{childIds.length===0?<div className="empty">Hali sizga farzand biriktirilmagan. Admin panelida bog‘lang.</div>:<><label className="field-label">Farzand<select value={viewedChild?.id??''} onChange={e=>setParentChildId(Number(e.target.value))}>{childIds.map(id=>{const u=users.find(x=>x.id===id);return <option key={id} value={id}>{u?.name||id} · {classes.find(c=>c.id===u?.classId)?.name||''}</option>})}</select></label><div className="md-v08-profile"><h3>{viewedChild?.name}</h3><p>{classes.find(c=>c.id===viewedChild?.classId)?.name||'Sinf yo‘q'}</p>{testAttempts.filter(a=>a.studentId===viewedChild?.id).length===0?<p>Hozircha test natijalari mavjud emas.</p>:testAttempts.filter(a=>a.studentId===viewedChild?.id).map(a=><div className="md-v08-list" key={a.id}><strong>{a.testTitle}</strong><span>{a.score}/{a.total} · {Math.round(a.score/a.total*100)}% · {a.passed?'O‘tdi':'O‘tmadi'}</span><small>{new Date(a.createdAt).toLocaleString('uz-UZ')}</small>{a.topicResults.map(t=><small key={t.topic}>{t.topic}: {t.correct}/{t.total}</small>)}</div>)}</div></>}</section>}
       {page === 'diagnostics' && <section className="panel">
@@ -1831,10 +1929,10 @@ function App() {
       </section>}
        {page === 'reports' && ['admin','assistant_admin','teacher'].includes(role) && <AssessmentReport/>}
        {page === 'reports' && <section className="panel"><div className="panel-head"><h2>Test natijalari</h2><span className="tag">{visibleAttempts.length} ta urinish</span></div><button className="btn btn-outline" type="button" onClick={exportAttemptsCsv} disabled={visibleAttempts.length===0}>↓ Natijalarni CSV (Excel) yuklab olish</button>
-         <p className="hint">Natijalar mahalliy SQLite bazasida saqlanadi. Pilotdagi shaxsiy ma’lumotlarni internetga chiqarish taqiqlanadi.</p>
+         <p className="hint">Natijalar ma’lumotlar bazasida saqlanadi. Shaxsiy ma’lumotlarni ruxsatsiz tarqatmang.</p>
          {visibleAttempts.length===0?<div className="empty">Sinov natijalari hali yo‘q. «O‘quvchilar» sahifasida faol testni bajarib ko‘ring.</div>:<>
            <div className="md-v06-results-summary"><span><b>{visibleAttempts.length}</b> ta test ishlangan</span><span><b>{Math.round(visibleAttempts.reduce((sum,a)=>sum+a.score/a.total,0)/visibleAttempts.length*100)}%</b> o‘rtacha natija</span></div>
-           <div className="md-v06-report-table"><div className="md-v06-report-row md-v08-report-row md-v06-report-heading"><span>Test nomi</span><span>O‘quvchi</span><span>Sinf</span><span>Natija</span><span>O‘tish</span><span>Sabab</span><span>Sana</span></div>{visibleAttempts.map(a=><div className="md-v06-report-row md-v08-report-row" key={a.id}><span>{a.testTitle}</span><span>{users.find(u=>u.id===a.studentId)?.name||"Avvalgi demo"}</span><span>{a.grade}-sinf</span><span>{a.score}/{a.total} ({Math.round(a.score/a.total*100)}%)</span><span>{a.passed===undefined?'—':a.passed?'O‘tdi':'O‘tmadi'}</span><span>{a.reason==='expired'?'Vaqt tugadi':'Yakunlandi'}</span><span>{new Date(a.createdAt).toLocaleString('uz-UZ')}</span></div>)}</div>
+           <div className="md-v06-report-table"><div className="md-v06-report-row md-v08-report-row md-v06-report-heading"><span>Test nomi</span><span>O‘quvchi</span><span>Sinf</span><span>Natija</span><span>O‘tish</span><span>Sabab</span><span>Sana</span></div>{visibleAttempts.map(a=><div className="md-v06-report-row md-v08-report-row" key={a.id}><span>{a.testTitle}</span><span>{users.find(u=>u.id===a.studentId)?.name||"O‘quvchi"}</span><span>{a.grade}-sinf</span><span>{a.score}/{a.total} ({Math.round(a.score/a.total*100)}%)</span><span>{a.passed===undefined?'—':a.passed?'O‘tdi':'O‘tmadi'}</span><span>{a.reason==='expired'?'Vaqt tugadi':'Yakunlandi'}</span><span>{new Date(a.createdAt).toLocaleString('uz-UZ')}</span></div>)}</div>
          </>}
        </section>}
       {page==='practice'&&role==='student'&&<PracticePanel grade={currentClass?.grade||5}/>}
@@ -1852,7 +1950,7 @@ function App() {
       {page === 'settings' && role==='admin' && <>
         <section className="panel" style={{marginBottom:18}}>
           <div className="panel-head"><h2>Administrator — testning umumiy sozlamalari</h2><span className="tag">Saqlanadigan standartlar</span></div>
-          <p className="hint">Bu parametrlar barcha 5–9-sinflar uchun standart bo‘ladi. Ayrim testlarga alohida vaqt belgilash mumkin. Parametrlar mahalliy pilot serveriga saqlanadi.</p>
+          <p className="hint">Bu parametrlar barcha 5–9-sinflar uchun standart bo‘ladi. Ayrim testlarga alohida vaqt belgilash mumkin. Parametrlar serverga saqlanadi.</p>
           <form className="form" onSubmit={saveGlobalSettings}>
             <div className="md-v07-settings-grid">
               <label>Test davomiyligi (daq.)<input type="number" min="1" max="240" required value={settingsDraft.durationMinutes} onChange={e=>setSettingsDraft(old=>({...old,durationMinutes:Number(e.target.value)}))}/></label>
@@ -1873,11 +1971,9 @@ function App() {
             <div className="md-v07-mini"><strong>Sinovlar</strong><span>{testAttempts.length}</span></div>
           </div>
           <div className="md-button-row"><button className="btn btn-outline" type="button" onClick={exportMetadataBackup}>↓ JSON zaxira (matn va sozlamalar)</button><button className="btn btn-outline" type="button" onClick={exportAttemptsCsv} disabled={!testAttempts.length}>↓ Hisobot CSV</button></div>
-          <p className="hint">JSON eksport faqat matn va sozlamalar uchun. To‘liq zaxira yaratish «Tizim va zaxira» bo‘limida: SQLite va serverda saqlangan barcha fayllar nusxalanadi.</p>
+          <p className="hint">JSON eksport faqat matn va sozlamalar uchun. To‘liq zaxira yaratish «Tizim va zaxira» bo‘limida mavjud.</p>
         </section>
-        <section className="panel"><h2>Professional tizimga o‘tish uchun keyingi modullar</h2>
-          <div className="md-v07-missing"><div>✓ Rollar uchun alohida demo kabinetlar — haqiqiy login hali ulanmagan</div><div>✓ Demo sinflar, o‘quvchilar, ota-ona aloqalari va test tayinlash</div><div>⏳ Serverdagi ma’lumotlar bazasi va avtomatik zaxira</div><div>⏳ Server tomonidan tasdiqlangan test vaqti, urinish limiti, audit jurnali</div><div>⏳ O‘quvchi identifikatori va nazorat qilinadigan test topshirish</div></div>
-        </section>
+        
       </>}
       {page==='ranking'&&<section className="panel md-v10-ranking-panel">
         <div className="panel-head"><div><div className="eyebrow">🏆 MATH-DIAGNOZ</div><h2>O‘quvchilar reytingi</h2><p className="hint">Har bir testning eng yaxshi natijasi olinadi, turli testlar bo‘yicha o‘rtacha foiz hisoblanadi. Qayta-qayta ishlash reytingni oshirmaydi.</p></div><button className="btn btn-outline" type="button" onClick={()=>void loadRanking()}>↻ Yangilash</button></div>
@@ -1888,7 +1984,7 @@ function App() {
         </>}
         <p className="hint">Reyting faqat tizimga kirganlarga ko‘rsatiladi. Boshqa o‘quvchilarning familiyalari qisqartiriladi.</p>
       </section>}
-      <p className="bottom-note">Mahalliy pilot: login, natijalar va yangi fayllar mahalliy serverda; eski brauzer fayllarini migratsiya qilish mumkin. Internetga ochishdan oldin xavfsizlik auditi va HTTPS talab qilinadi.</p></main>
+      </main><footer className="md27-site-author">Muallif: Xolmurodova Shaxnoza Zayirovna</footer>
     </div>
   </div>
 }

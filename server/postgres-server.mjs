@@ -3,6 +3,8 @@
 // This HTTP pilot is ONLY for a trusted PRIVATE school LAN, not the public Internet.
 // HTTPS, external audit and production-grade security are still required for public use.
 import { createServer } from 'node:http'
+import { assignmentStartMs, platformDateMs, summarizeAssignments } from './assignment-monitor.mjs'
+import { updatedChildIds, normalizeIds } from './teacher-parent-links.mjs'
 import { initV2Schema, handleV2 } from './v2-module.mjs'
 import { CatalogError, patchBookCatalog, removeBookCatalog, unusedPdfKey } from './book-catalog.mjs'
 import { get, all, run, initSchema, ensureSchool, backupTables, filePut, fileGet, getClient } from './postgres-db.mjs'
@@ -142,9 +144,10 @@ async function verifyExam(test,user){
    const gated=(await state('quarterGates')||[]).some(g=>g.grade===grade&&g.quarter===(test.quarter||1)&&g.enabled)
    if(!book||book.grade!==grade||!gated)throw new Error('Bu sinf uchun choraklik test hali ochilmagan')
  }
- const now=Date.now();if(test.availableFrom&&now<new Date(test.availableFrom).getTime()||test.availableUntil&&now>=new Date(test.availableUntil).getTime())throw new Error('Test uchun belgilangan vaqt kelmagan yoki tugagan')
- const assigned=(await state('assignments')||[]).some(a=>a.testId===test.id&&a.classId===user.class_id)
+ const now=Date.now();if(test.availableFrom&&now<platformDateMs(test.availableFrom)||test.availableUntil&&now>=platformDateMs(test.availableUntil))throw new Error('Test uchun belgilangan vaqt kelmagan yoki tugagan')
+ const assigned=(await state('assignments')||[]).find(a=>a.testId===test.id&&a.classId===user.class_id)
  if(!assigned)throw new Error('Test sinfingizga tayinlanmagan')
+ if(now < assignmentStartMs(assigned,test))throw new Error('Test boshlanish vaqti hali kelmagan')
  const attempted=(await get('SELECT COUNT(*) AS n FROM results WHERE user_id=? AND test_id=?',user.id,test.id)).n
  const s=await state('adminSettings')||{};if(attempted >= (test.attemptLimit??s.maxAttempts??3))throw new Error('Urinish limiti tugagan')
 }
@@ -437,6 +440,46 @@ const server=createServer(async(req,res)=>{
       await run('UPDATE classes SET name=?,grade=?,school_id=?,teacher_id=? WHERE id=?',name,grade,schoolId,teacherId,id)
       return send(res,200,{class:(await allClasses()).find(c=>c.id===id)})
     }
+    // Teachers may connect a parent account to students of their OWN assigned classes only.
+    // Parent identification is an exact login; unrelated parent lists are never exposed.
+    if(path==='/api/teacher/parent-links'&&['GET','POST','DELETE'].includes(method)){
+      if(actor.role!=='teacher')return fail(res,403,'Bu bo‘lim faqat o‘qituvchilar uchun')
+      const d=method==='GET'?{classId:Number(url.searchParams.get('classId'))}:await readJson(req)
+      const classId=Number(d.classId)
+      if(!Number.isSafeInteger(classId)||!await get('SELECT id FROM classes WHERE id=? AND teacher_id=?',classId,actor.id))return fail(res,403,'Bu sinfni boshqarish huquqingiz yo‘q')
+      if(method==='GET'){
+        const students=await all("SELECT id FROM users WHERE role='student' AND active=1 AND class_id=?",classId)
+        const ids=new Set(students.map(s=>Number(s.id)))
+        const parents=await all("SELECT id,username,name,child_ids FROM users WHERE role='parent' AND active=1")
+        const rows=[]
+        for(const parent of parents){
+          for(const studentId of normalizeIds(JSON.parse(parent.child_ids||'[]'))){
+            if(ids.has(studentId))rows.push({studentId,parentId:parent.id,parentName:parent.name,parentUsername:parent.username})
+          }
+        }
+        return send(res,200,{rows})
+      }
+      const studentId=Number(d.studentId)
+      if(!Number.isSafeInteger(studentId)||!await get("SELECT id FROM users WHERE id=? AND role='student' AND active=1 AND class_id=?",studentId,classId))return fail(res,403,'O‘quvchi sizning sinfingizga tegishli emas')
+      const parent=method==='POST'
+        ?await get("SELECT id,username FROM users WHERE username=? AND role='parent' AND active=1",clean(d.parentLogin).toLowerCase())
+        :await get("SELECT id,username FROM users WHERE id=? AND role='parent' AND active=1",Number(d.parentId))
+      if(!parent)return fail(res,404,'Ota-ona hisobi topilmadi. Uning loginini tekshiring.')
+      const client=await getClient()
+      try{
+        await client.query('BEGIN')
+        const row=(await client.query("SELECT child_ids FROM users WHERE id=$1 AND role='parent' AND active=1 FOR UPDATE",[parent.id])).rows[0]
+        if(!row)throw new Error('Ota-ona hisobi topilmadi')
+        const existing=JSON.parse(row.child_ids||'[]')
+        if(method==='DELETE'&&!normalizeIds(existing).includes(studentId))throw new Error('Bu o‘quvchi ota-onaga biriktirilmagan')
+        const next=updatedChildIds(existing,studentId,method==='POST'?'link':'unlink')
+        await client.query('UPDATE users SET child_ids=$1 WHERE id=$2',[JSON.stringify(next),parent.id])
+        await client.query('COMMIT')
+      }catch(e){await client.query('ROLLBACK');return fail(res,400,e instanceof Error?e.message:'Bog‘lashda xatolik')}
+      finally{client.release()}
+      await audit(actor,method==='POST'?'parent.link':'parent.unlink',`teacher=${actor.id};class=${classId};student=${studentId};parent=${parent.id}`)
+      return send(res,200,{ok:true})
+    }
     if(path==='/api/users'&&method==='POST'){
       if(!isOperator(actor))return fail(res,403,'Faqat administrator')
       const d=await readJson(req),role=clean(d.role)
@@ -554,12 +597,34 @@ const server=createServer(async(req,res)=>{
       const k=stateMatch[1];if(!(isOperator(actor)||actor.role==='teacher')||(actor.role==='teacher'&&['adminSettings','quarterGates'].includes(k))||(actor.role==='assistant_admin'&&k==='adminSettings'))return fail(res,403,'Ruxsat yo‘q')
       const d=await readJson(req)
       if(!Array.isArray(d.value)&&k!=='adminSettings')return fail(res,400,'Noto‘g‘ri ma’lumot')
+      if(k==='assignments' && (d.value.length>10000 || d.value.some(a=>
+        !Number.isSafeInteger(Number(a.id)) || !Number.isSafeInteger(Number(a.testId)) ||
+        !Number.isSafeInteger(Number(a.classId)) || !Number.isFinite(Date.parse(a.createdAt)) ||
+        (a.startAt && !Number.isFinite(Date.parse(a.startAt))) ||
+        (a.startAt && !/^\d{4}-\d{2}-\d{2}T/.test(a.startAt)))))return fail(res,400,'Test tayinlash sanasi noto‘g‘ri')
       if(k==='quarterGates'&&(d.value.length>20||d.value.some(g=>![5,6,7,8,9].includes(g.grade)||![1,2,3,4].includes(g.quarter)||typeof g.enabled!=='boolean')))return fail(res,400,'Chorak sozlamalari noto‘g‘ri')
       if(k==='assignments'&&actor.role==='teacher'){
         const mine=(await all('SELECT id FROM classes WHERE teacher_id=?',actor.id)).map(c=>c.id)
         const old=await state('assignments')||[]; if(d.value.filter(a=>!old.some(x=>x.id===a.id)).some(a=>!mine.includes(a.classId)) || old.filter(a=>!mine.includes(a.classId)).some(a=>!d.value.some(x=>x.id===a.id&&x.classId===a.classId&&x.testId===a.testId)))return fail(res,403,'O‘zingizga tegishli sinflargagina tayinlang')
       }
+      if(k==='assignments' && actor.role==='teacher'){
+        const mine=(await all('SELECT id FROM classes WHERE teacher_id=?',actor.id)).map(c=>Number(c.id))
+        const old=await state('assignments')||[]
+        if(d.value.some(a=>!mine.includes(Number(a.classId))&&!old.some(x=>x.id===a.id&&x.classId===a.classId&&x.testId===a.testId&&x.startAt===a.startAt)))return fail(res,403,'Boshqa sinf tayinlovini o‘zgartirib bo‘lmaydi')
+      }
       await store(k,d.value);await audit(actor,'state.update',k);return send(res,200,{ok:true})
+    }
+    if(path==='/api/assignments/status'&&method==='GET'){
+      if(!isOperator(actor)&&actor.role!=='teacher')return fail(res,403,'Faqat administrator va o‘qituvchi')
+      const allowed=actor.role==='teacher' ? new Set((await all('SELECT id FROM classes WHERE teacher_id=?',actor.id)).map(c=>Number(c.id))) : null
+      const assigned=(await state('assignments')||[]).filter(a=>!allowed||allowed.has(Number(a.classId)))
+      const [students,exams,results]=await Promise.all([
+        all(`SELECT id,name,class_id AS "classId" FROM users WHERE role='student' AND active=1 AND verified=1`),
+        all('SELECT user_id,test_id,started_at,deadline_at,status FROM exams'),
+        all('SELECT user_id,test_id,data FROM results')
+      ])
+      const rows=summarizeAssignments(assigned,await state('testSets')||[],students,exams,results)
+      return send(res,200,{rows})
     }
     if(path==='/api/exams/current'&&method==='GET'){
       const ex=await get("SELECT * FROM exams WHERE user_id=? AND status='running' ORDER BY started_at DESC LIMIT 1",actor.id)
@@ -573,7 +638,7 @@ const server=createServer(async(req,res)=>{
       const active=await get("SELECT id FROM exams WHERE user_id=? AND status='running'",actor.id)
       if(active)return fail(res,409,'Boshlangan testingiz bor')
       const duration=(test.durationMinutes??(await state('adminSettings'))?.durationMinutes??20)*60000
-      const start=Date.now(),deadline=Math.min(start+duration,test.availableUntil?new Date(test.availableUntil).getTime():Infinity),id=randomBytes(18).toString('hex')
+      const start=Date.now(),deadline=Math.min(start+duration,test.availableUntil?platformDateMs(test.availableUntil):Infinity),id=randomBytes(18).toString('hex')
       await run('INSERT INTO exams(id,user_id,test_id,started_at,deadline_at) VALUES(?,?,?,?,?)',id,actor.id,test.id,start,deadline)
       await audit(actor,'exam.start',test.title);return send(res,201,{exam:{id,testId:test.id,startedAt:start,deadlineAt:deadline,answers:{}}})
     }

@@ -49,7 +49,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
   return <div className="md14-site" id="top">
     <header className="md14-header">
       <a href="#top" className="md14-brand" aria-label="MATH-DIAGNOZ bosh sahifa">
-        <span className="md14-brand-icon">M<span>✦</span></span><span><b>MATH-DIAGNOZ</b><small>Raqamli matematika · v2.0</small></span>
+        <span className="md14-brand-icon">M<span>✦</span></span><span><b>MATH-DIAGNOZ</b><small>Raqamli matematika</small></span>
       </a>
       <nav aria-label="Bosh sahifa menyusi"><a href="#imkoniyatlar">Imkoniyatlar</a><a href="#qanday-ishlaydi">Qanday ishlaydi?</a><a href="#sinflar">Sinflar</a></nav>
       <div className="md14-nav-actions"><button className="md14-link-btn" onClick={enter}>{loggedIn ? 'Kabinetga qaytish' : 'Kirish'}</button>{!loggedIn && <button className="md14-nav-signup" onClick={onRegister}>{'Ro‘yxatdan o‘tish'} <span>↗</span></button>}</div>
@@ -60,7 +60,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
         {shapes.map((symbol, i) => <span aria-hidden="true" key={i} className="md14-symbol" style={{left:`${4+(i*37)%91}%`,top:`${6+(i*23)%85}%`,animationDelay:`-${(i*1.7)%12}s`,animationDuration:`${9+i%7*2}s`}}>{symbol}</span>)}
         <div className="md14-hero-content">
           <div className="md14-copy">
-            <div className="md14-eyebrow"><span/> {schoolMode?`🏫 ${schoolName} · MAKTAB PILOTI`:'5–9-SINFLAR UCHUN ZAMONAVIY TA’LIM'}</div>
+            <div className="md14-eyebrow"><span/> {schoolMode?`🏫 ${schoolName}`:'5–9-SINFLAR UCHUN ZAMONAVIY TA’LIM'}</div>
             <h1>Matematikani <em>tushuning.</em><br/>Bilimingizni <strong>rivojlantiring.</strong></h1>
             <p>Darsliklar, test va diagnostika, xalqaro baholashga tayyorgarlik, AI yordamchilari va matematik pasport — yagona platformada.</p>
             <div className="md14-hero-buttons"><button className="md14-primary" onClick={loggedIn ? onDashboard : onRegister}> {loggedIn ? 'Kabinetimga o‘tish' : 'Bepul ro‘yxatdan o‘tish'} <span>→</span></button><button className="md14-secondary" onClick={() => {setShowExample(v=>!v); setExampleAnswer(null)}}>{showExample?'Mini-testni yashirish':'Mini-testni sinash'} <span>▶</span></button></div>
@@ -70,7 +70,7 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
           <div className="md14-showcase" aria-label="Matematik pasport ko‘rinishining namunasi">
             <div className="md14-floating md14-floating-top">✨ 5–9-sinflar</div>
             <div className="md14-progress-card">
-              <div className="md14-card-head"><span className="md14-card-logo">M</span><div><b>Matematik pasport</b><small>Namuna — shaxsiy bilim xaritasi</small></div><span className="md14-live">● DEMO</span></div>
+              <div className="md14-card-head"><span className="md14-card-logo">M</span><div><b>Matematik pasport</b><small>Namuna — shaxsiy bilim xaritasi</small></div></div>
               <div className="md14-card-score"><div><small>O‘ZLASHTIRISH NAMUNASI</small><strong>78<span>%</span></strong><b>↗ O‘sish sari!</b></div><span className="md14-trophy">🏆</span></div>
               <div className="md14-card-bars">{[{title:'Natural sonlar',val:92,level:'good'},{title:'Kasrlar',val:84,level:'good'},{title:'Geometriya',val:78,level:'mid'},{title:'Tenglamalar',val:43,level:'weak'}].map(b => <div className="md14-card-bar" key={b.title}><div><span>{b.title}</span><strong>{b.val}%</strong></div><div className="md14-track"><span className={b.level} style={{width:`${b.val}%`}}/></div></div>)}</div>
               <div className="md14-advice"><span>💡</span><div><b>Shaxsiy tavsiya</b><small>Tenglamalar bo‘yicha mashqlar bilan bilimingizni mustahkamlang.</small></div></div>
@@ -89,6 +89,6 @@ export default function PublicLanding({ onLogin, onRegister, loggedIn, onDashboa
       <section className="md14-section md14-grades" id="sinflar"><div className="md14-section-intro"><span>5–9-SINFLAR</span><h2>Har bir sinf uchun <em>alohida ta’lim yo‘li</em></h2><p>PDF darsliklar, boblar, mavzular va choraklik testlar sinf bo‘yicha ajratiladi.</p></div><div className="md14-grade-grid">{[5,6,7,8,9].map(grade=><button key={grade} onClick={enter}><span>📘</span><b>{grade}-sinf</b><small>Mavzular va testlar</small><i>→</i></button>)}</div></section>
       <section className="md14-bottom"><div><span>✦ MATH-DIAGNOZ</span><h2>Matematikadagi imkoniyatingizni kashf eting!</h2><p>Shaxsiy natijalar, o‘qituvchi monitoringi va rivojlanish mashqlari.</p></div><button onClick={loggedIn?onDashboard:onRegister}>{loggedIn?'Kabinetga qaytish':'Ro‘yxatdan o‘tish'} →</button></section>
     </main>
-    <footer className="md14-footer"><div><b>MATH-DIAGNOZ</b><span>Bilimdagi bo‘shliqni aniqlaymiz, yechimini topamiz.</span></div><small>© 2026 · Mahalliy sinov versiyasi · Rasmiy davlat axborot tizimi emas</small></footer>
+    <footer className="md14-footer"><div><b>MATH-DIAGNOZ</b><span>Bilimdagi bo‘shliqni aniqlaymiz, yechimini topamiz.</span></div><small>Muallif: Xolmurodova Shaxnoza Zayirovna · Mustaqil ta’lim platformasi</small></footer>
   </div>
 }
